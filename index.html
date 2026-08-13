@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Polymer Flood Reservoir — AR</title>
+<meta name="description" content="Scan-to-view 3D/AR reservoir simulation model, 17x22x5 corner-point grid.">
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#151a22; --line:#232c39;
+    --fg:#e8edf5; --muted:#8e9bb0; --accent:#4da3ff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  body{display:flex;flex-direction:column;overscroll-behavior:none}
+
+  header{padding:14px 16px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  h1{margin:0;font-size:16px;font-weight:650;letter-spacing:.2px}
+  header p{margin:3px 0 0;color:var(--muted);font-size:12.5px}
+
+  model-viewer{flex:1 1 auto;width:100%;min-height:280px;background:
+    radial-gradient(ellipse at 50% 35%,#1b2331 0%,#0b0e13 70%);--poster-color:transparent}
+
+  #ui{flex:0 0 auto;padding:12px 16px calc(14px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line);background:var(--panel)}
+
+  .row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  .row::-webkit-scrollbar{display:none}
+  button.prop{flex:0 0 auto;background:#1d2532;color:var(--muted);border:1px solid var(--line);
+    border-radius:999px;padding:7px 13px;font-size:12.5px;font-family:inherit;cursor:pointer;
+    white-space:nowrap;transition:.15s}
+  button.prop[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#06121f;font-weight:600}
+
+  .bar{margin-top:12px;height:12px;border-radius:3px;
+    background:linear-gradient(90deg,#00f 0%,#0ff 25%,#0f0 50%,#ff0 75%,#f00 100%)}
+  .scale{display:flex;justify-content:space-between;margin-top:4px;color:var(--muted);
+    font-size:11px;font-variant-numeric:tabular-nums}
+  .unit{text-align:center;color:var(--muted);font-size:11.5px;margin-top:5px}
+
+  .legend{display:flex;gap:16px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:11.5px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;
+    vertical-align:baseline}
+  .meta{margin-left:auto;text-align:right}
+
+  #err{display:none;padding:10px 14px;margin:10px 16px;border-radius:8px;
+    background:#3a1d1d;border:1px solid #6b2b2b;color:#ffc9c9;font-size:12.5px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Polymer Flood — 3D Reservoir Model</h1>
+  <p id="sub">17 × 22 × 5 corner-point grid · 1,870 cells · true vertical scale</p>
+</header>
+
+<model-viewer
+  id="mv"
+  src="reservoir.glb"
+  alt="Three-dimensional reservoir simulation grid with production and injection wells"
+  camera-controls
+  touch-action="pan-y"
+  auto-rotate
+  auto-rotate-delay="2500"
+  rotation-per-second="14deg"
+  interaction-prompt="none"
+  shadow-intensity="1"
+  shadow-softness="0.6"
+  exposure="0.72"
+  environment-image="neutral"
+  tone-mapping="neutral"
+  camera-orbit="35deg 68deg 1.35m"
+  min-camera-orbit="auto 0deg auto"
+  max-camera-orbit="auto 175deg auto"
+  ar
+  ar-modes="webxr scene-viewer quick-look"
+  ar-scale="auto"
+  ar-placement="floor"
+  ios-src="reservoir.usdz">
+</model-viewer>
+
+<div id="err"></div>
+
+<div id="ui">
+  <div class="row" id="props"></div>
+  <div class="bar"></div>
+  <div class="scale"><span id="lo">–</span><span id="mid">–</span><span id="hi">–</span></div>
+  <div class="unit" id="unit">–</div>
+  <div class="legend">
+    <span><i style="background:#d93d73"></i>Producers (PROD-1/2/3)</span>
+    <span><i style="background:#338cf2"></i>Injector (INJ)</span>
+    <span class="meta" id="meta"></span>
+  </div>
+</div>
+
+<script type="module" src="model-viewer.min.js"></script>
+<script type="module">
+const mv   = document.getElementById('mv');
+const errEl= document.getElementById('err');
+const fail = m => { errEl.style.display='block'; errEl.textContent = m; };
+
+const meta = await fetch('model.json').then(r=>r.json()).catch(()=>null);
+if (!meta) fail('Could not load model.json — is the page being served over http(s)?');
+
+const props = meta.properties;
+const NROWS = props.length;
+
+// ---- property buttons ------------------------------------------------------
+const row = document.getElementById('props');
+props.forEach((p,i)=>{
+  const b = document.createElement('button');
+  b.className='prop'; b.textContent=p.name; b.setAttribute('aria-pressed', i===0);
+  b.onclick = ()=> select(i);
+  row.appendChild(b);
+});
+
+const fmt = v => {
+  const a = Math.abs(v);
+  if (a === 0) return '0';
+  if (a >= 1000) return v.toFixed(0);
+  if (a >= 10)   return v.toFixed(1);
+  if (a >= 1)    return v.toFixed(2);
+  return v.toFixed(3);
+};
+
+let sampler = null;
+
+function select(i){
+  const p = props[i];
+  [...row.children].forEach((b,k)=> b.setAttribute('aria-pressed', k===i));
+  // the colour bar is linear in screen space, so a log-scaled property needs its
+  // midpoint tick placed at the geometric mean to stay truthful
+  const isLog = p.scale === 'log';
+  const mid = isLog ? Math.sqrt(Math.max(p.min,1e-3) * p.max) : (p.min + p.max)/2;
+  document.getElementById('lo').textContent  = fmt(p.min);
+  document.getElementById('mid').textContent = fmt(mid);
+  document.getElementById('hi').textContent  = fmt(p.max);
+  document.getElementById('unit').textContent = p.unit + (isLog ? '  (log scale)' : '');
+  // Shift the sampled row of the property data texture. Geometry never reloads.
+  if (sampler) sampler.setOffset({u:0, v:i/NROWS});
+}
+
+// ---- hook the data texture once the model is ready -------------------------
+mv.addEventListener('load', ()=>{
+  try{
+    const mats = mv.model.materials;
+    const m = mats.find(x=>x.name==='reservoir-property') ?? mats[0];
+    const info = m.pbrMetallicRoughness.baseColorTexture;
+    sampler = info.texture.sampler;
+    select(0);
+  }catch(e){
+    fail('Property switching unavailable in this browser ('+e.message+'). The 3D model still works.');
+  }
+  const g = meta.grid;
+  document.getElementById('meta').textContent =
+    `${g.faces} faces · ${(meta.target_size_m*100).toFixed(0)} cm in AR`;
+});
+
+mv.addEventListener('error', e => fail('Model failed to load: '+(e.detail?.type ?? 'unknown')));
+</script>
+</body>
+</html>

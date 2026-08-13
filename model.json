@@ -1,0 +1,101 @@
+{
+  "grid": {
+    "nx": 17,
+    "ny": 22,
+    "nz": 5,
+    "ncell": 1870,
+    "faces": 1138,
+    "units": "FIELD"
+  },
+  "vertical_exaggeration": 1.0,
+  "target_size_m": 0.5,
+  "properties": [
+    {
+      "name": "OilSat (initial)",
+      "min": 0.0,
+      "max": 0.75,
+      "unit": "So, fraction",
+      "row": 0,
+      "scale": "lin"
+    },
+    {
+      "name": "PERMX heterogeneous",
+      "min": 0.1,
+      "max": 397.2,
+      "unit": "k, mD",
+      "row": 1,
+      "scale": "log"
+    },
+    {
+      "name": "PERMX homogeneous",
+      "min": 66.8,
+      "max": 306.6,
+      "unit": "k, mD",
+      "row": 2,
+      "scale": "log"
+    },
+    {
+      "name": "Porosity heterogeneous",
+      "min": 0.012,
+      "max": 0.25,
+      "unit": "phi, fraction",
+      "row": 3,
+      "scale": "lin"
+    },
+    {
+      "name": "Porosity homogeneous",
+      "min": 0.15,
+      "max": 0.24,
+      "unit": "phi, fraction",
+      "row": 4,
+      "scale": "lin"
+    },
+    {
+      "name": "Depth",
+      "min": 5069.24,
+      "max": 8351.7001375,
+      "unit": "TVD, ft",
+      "row": 5,
+      "scale": "lin"
+    }
+  ],
+  "wells": [
+    {
+      "name": "PROD-1",
+      "i": 11,
+      "j": 12,
+      "kind": "prod",
+      "x": 0.045454545454545456,
+      "y": 0.2761363740299334,
+      "z": -0.011363636363636364
+    },
+    {
+      "name": "PROD-2",
+      "i": 5,
+      "j": 17,
+      "kind": "prod",
+      "x": -0.09090909090909091,
+      "y": 0.2761363740299334,
+      "z": -0.125
+    },
+    {
+      "name": "PROD-3",
+      "i": 13,
+      "j": 5,
+      "kind": "prod",
+      "x": 0.09090909090909091,
+      "y": 0.2761363740299334,
+      "z": 0.14772727272727273
+    },
+    {
+      "name": "INJ",
+      "i": 7,
+      "j": 6,
+      "kind": "inj",
+      "x": -0.045454545454545456,
+      "y": 0.2761363740299334,
+      "z": 0.125
+    }
+  ],
+  "ios_property": "OilSat (initial)"
+}
