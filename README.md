@@ -36,7 +36,7 @@ The original six property rows are preserved. Calculated oil/water saturation no
 
 Preview: `python3 -m http.server 8773 --bind 127.0.0.1`, then open `http://127.0.0.1:8773/`.
 
-Tests: `node --test tests/data.test.mjs`. The tests cover import validation, exact-day sampling, missing values, cell addressing, texture quantization bounds, and unchanged model hashes. Numerical test fixtures are synthetic test-only values and are never loaded into the live viewer.
+Tests: `node --test tests/*.test.mjs`. The tests cover import validation, exact-day sampling, missing values, cell addressing, texture quantization bounds, and unchanged model hashes. Numerical test fixtures are synthetic test-only values and are never loaded into the live viewer.
 
 GitHub Pages publishes `main` from `/`. Baseline before the interface upgrade: `797f9f22c6926736e386df009d4ecd899365043b`. Use a revert commit for rollback, preserving repository history. Core viewer dependencies and model files are served from this repository; no third-party runtime font or JavaScript CDN is required.
 
@@ -44,4 +44,4 @@ GitHub Pages publishes `main` from `/`. Baseline before the interface upgrade: `
 
 The current Animation day mode plays a conservative, assumption-based oil–water scenario, with fixed-scale dynamic saturation, normalized production, grid edges and solved surface flux cues. Original geometry and static property arrays are preserved. Read [SCENARIO-MODEL.md](SCENARIO-MODEL.md) before interpreting results. Missing internal geometry, PVT and completion controls prevent a field forecast.
 
-Rebuild: `python scripts/build_transport.py` (numpy/Pillow). Test: `python tests/transport_test.py`, `node --test tests/data.test.mjs`, and `python tests/ar_assets_test.py` on macOS. Static native AR assets are unchanged.
+Rebuild: `python scripts/build_transport.py` (numpy/Pillow). Test: `python tests/transport_test.py`, `node --test tests/*.test.mjs`, and `python tests/ar_assets_test.py` on macOS. Static native AR assets are unchanged.

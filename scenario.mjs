@@ -1,5 +1,8 @@
 // Precomputed conservative scenario; no field calibration is implied.
 export const scenarioFrame = (day, days) => Math.max(0, Math.min(days.length - 1, Math.round(day / (days[1] - days[0]))));
+// model-viewer's CanvasTexture keeps Three.js flipY=true, unlike loaded GLB PNGs.
+// Reflect tile rows so original glTF UVs still address the correct source cell.
+export const canvasTileOrigin = cell => [cell % 64 * 16, (31 - Math.floor(cell / 64)) * 16];
 export const saturationColor = value => {
   // Fixed, perceptually ordered cividis-like ramp. Both phases use [0,1].
   const stops = [[32, 52, 83], [57, 80, 109], [103, 115, 113], [165, 154, 105], [246, 219, 72]];
@@ -56,7 +59,7 @@ export async function createScenarioView(mv, meta, originalTexture, readJSON) {
     lastKey = key;
     ctx.clearRect(0, 0, 1024, 512);
     for (let cell = 0; cell < 1870; cell++) {
-      const x = cell % 64 * 16, y = Math.floor(cell / 64) * 16;
+      const [x, y] = canvasTileOrigin(cell);
       const dynamic = active && (row === 0 || row === 6);
       const value = row === 6 ? states[frame * 1870 + cell] : 1 - states[frame * 1870 + cell];
       let rgb;

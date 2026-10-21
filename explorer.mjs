@@ -1,4 +1,4 @@
-import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs';
+import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs?v=2';
 import {parseHistory, sampleAt, cellAddress, textureEstimate, parseGLB, accessorFloats, RATE_COLUMNS} from './data.mjs';
 
 const $ = id => document.getElementById(id);
