@@ -21,20 +21,27 @@ permeability (log scale), porosity, and depth.
 | `index.html` | the viewer |
 | `reservoir.glb` | unchanged original source model |
 | `reservoir.usdz` | unchanged original export, retained for provenance |
-| `ar/` | six textured GLB/USDZ pairs used by the viewer and AR |
+| `ar/` | six unchanged textured GLB/USDZ pairs for static native AR |
+| `scenario/` | calculated saturation frames, numerical checks and derived web mesh |
 | `model.json` | property legend and well metadata |
 | `model-viewer.min.js` | viewer library (vendored, no CDN) |
 
-Static files only — no build step, no server, no tracking.
+Static deployment — no server-side execution or tracking. The scenario is reproducibly precomputed with the included Python build script.
 
 ## Explorer upgrade
 
 The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, a readable Animation day counter and scrubber tied to well-flow playback, with a manual camera, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
 
-The six reservoir properties are **static**. No production time series was supplied. Presentation motion is explicitly illustrative; daily production playback requires user-supplied records. Cell values are approximate reconstructions from the original color texture. Read [DATA-PROVENANCE.md](DATA-PROVENANCE.md) for scientific limits and the exact import schema.
+The original six property rows are preserved. Calculated oil/water saturation now evolves in a separately identified conservative scenario; permeability, porosity and depth remain static. No authentic production time series was supplied. Recorded-history playback requires user-supplied records. Source cell values are approximate reconstructions from the original color texture. Read [DATA-PROVENANCE.md](DATA-PROVENANCE.md) for scientific limits and the exact import schema.
 
 Preview: `python3 -m http.server 8773 --bind 127.0.0.1`, then open `http://127.0.0.1:8773/`.
 
 Tests: `node --test tests/data.test.mjs`. The tests cover import validation, exact-day sampling, missing values, cell addressing, texture quantization bounds, and unchanged model hashes. Numerical test fixtures are synthetic test-only values and are never loaded into the live viewer.
 
 GitHub Pages publishes `main` from `/`. Baseline before the interface upgrade: `797f9f22c6926736e386df009d4ecd899365043b`. Use a revert commit for rollback, preserving repository history. Core viewer dependencies and model files are served from this repository; no third-party runtime font or JavaScript CDN is required.
+
+## Calculated transport upgrade
+
+The current Animation day mode plays a conservative, assumption-based oil–water scenario, with fixed-scale dynamic saturation, normalized production, grid edges and solved surface flux cues. Original geometry and static property arrays are preserved. Read [SCENARIO-MODEL.md](SCENARIO-MODEL.md) before interpreting results. Missing internal geometry, PVT and completion controls prevent a field forecast.
+
+Rebuild: `python scripts/build_transport.py` (numpy/Pillow). Test: `python tests/transport_test.py`, `node --test tests/data.test.mjs`, and `python tests/ar_assets_test.py` on macOS. Static native AR assets are unchanged.

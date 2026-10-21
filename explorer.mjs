@@ -1,3 +1,4 @@
+import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs';
 import {parseHistory, sampleAt, cellAddress, textureEstimate, parseGLB, accessorFloats, RATE_COLUMNS} from './data.mjs';
 
 const $ = id => document.getElementById(id);
@@ -7,6 +8,8 @@ const shortNames = ['Oil saturation', 'Permeability · het.', 'Permeability · h
 const notes = ['Initial state from EQUIL: oil–water contact 6,750 ft; connate water saturation 0.25. No time evolution.', 'Horizontal permeability. Logarithmic scale preserves variation across three orders of magnitude.', 'Original homogeneous-case permeability row. Values are static.', 'Original heterogeneous porosity, shown as a fraction of bulk volume.', 'Original homogeneous-case porosity. Values are static.', 'Original cell-centre true vertical depth, in feet. The vertical scale is not exaggerated.'];
 const fmt = (v, row) => row === 5 ? Math.round(v).toLocaleString('en-US') : Math.abs(v) < 1 ? v.toFixed(3) : Number(v.toPrecision(3)).toLocaleString('en-US');
 const position = p => `${p.x}m ${p.y}m ${p.z}m`;
+let scenario;
+const arModel = document.getElementById('ar-reservoir');
 let meta, glb, texture, arManifest, assetReady = false, ready = false, selectedProperty = 0, selectedWell = 'PROD-1', selectedCell = null;
 let mode = 'flow', playing = false, illustrativeDay = 0, productionIndex = 0, history = null, sourceName = '', playbackRemainder = 0;
 let animationFrame = null, lastFrame = null, lastPaint = 0, pointerStart = null;
@@ -18,25 +21,25 @@ const fetchChecked = async url => { const r = await fetch(url); if (!r.ok) throw
 
 function setProperty(index) {
   selectedProperty = index;
-  const p = meta.properties[index];
+  const p = index === 6 || (index === 0 && mode === 'flow') ? {min:0,max:1,unit: index === 6 ? 'Sw, fraction' : 'So, fraction',scale:'lin'} : meta.properties[index];
   document.querySelectorAll('.property').forEach((b, i) => { b.classList.toggle('active', i === index); b.setAttribute('aria-pressed', i === index); });
-  $('scene-title').textContent = names[index]; $('legend-name').textContent = shortNames[index];
+  const dynamic = mode === 'flow' && (index === 0 || index === 6);
+  $('scene-title').textContent = dynamic ? `Calculated ${index === 6 ? 'water' : 'oil'} saturation` : index === 6 ? 'Initial water saturation' : names[index];
+  $('legend-name').textContent = index === 6 ? 'Water saturation' : shortNames[index];
+  document.querySelector('.color-ramp').classList.toggle('saturation', dynamic || index === 6);
+  document.querySelector('.color-ramp').classList.toggle('banded', (dynamic || index === 6) && $('contours').checked);
+  document.querySelector('.color-ramp').style.background = (dynamic || index === 6) && $('contours').checked ? `linear-gradient(90deg,${Array.from({length:11},(_,n)=>`rgb(${saturationColor(n/10).join(',')}) ${Math.max(0,(n-.5)*10)}% ${Math.min(100,(n+.5)*10)}%`).join(',')})` : '';
   $('legend-scale').textContent = p.scale === 'log' ? 'Logarithmic' : 'Linear';
   const mid = p.scale === 'log' ? Math.sqrt(p.min * p.max) : (p.min + p.max) / 2;
   $('legend-ticks').replaceChildren(...[p.min, mid, p.max].map(v => { const e = document.createElement('span'); e.textContent = fmt(v, index); return e; }));
-  $('legend-unit').textContent = p.unit; $('property-note').textContent = notes[index];
-  const asset = arManifest.properties[index];
-  mv.setAttribute('ios-src', asset.usdz);
+  $('legend-unit').textContent = p.unit + (dynamic ? ' · fixed 0–1 scale' : '');
+  $('property-note').textContent = dynamic ? 'Calculated conservative oil–water scenario. Fixed scale across all days; assumptions in the information panel.' : index === 6 ? 'Initial water = 1 − original initial oil saturation. Not imported dynamic data.' : notes[index];
+  const asset = arManifest.properties[index === 6 ? 0 : index];
+  arModel.setAttribute('ios-src', asset.usdz);
+  arModel.setAttribute('src', asset.glb);
   $('ar-glb').href = asset.glb; $('ar-usdz').href = asset.usdz;
-  $('ar-property').textContent = `Selected AR property: ${names[index]}.`;
-  if (mv.getAttribute('src') !== asset.glb) {
-    // Preserve a manually chosen camera when swapping an identical mesh.
-    const orbit = mv.getCameraOrbit(), target = mv.getCameraTarget();
-    mv.cameraOrbit = `${orbit.theta}rad ${orbit.phi}rad ${orbit.radius}m`;
-    mv.cameraTarget = position(target);
-    assetReady = false; $('ar-open').disabled = true;
-    $('loading').hidden = false; mv.setAttribute('src', asset.glb);
-  }
+  $('ar-property').textContent = `Static AR property: ${names[index === 6 ? 0 : index]}. Calculated frames stay in the browser.`;
+  if (scenario) scenario.paint(index, mode === 'flow' ? illustrativeDay : 0, mode === 'flow', true);
 
   if (selectedCell !== null) showCell(selectedCell);
 }
@@ -50,9 +53,10 @@ function showCell(id) {
   selectedCell = id;
   $('cell-prompt').hidden = true; $('cell-readout').hidden = false; $('clear-cell').hidden = false;
   $('cell-address').textContent = `I ${address.i} · J ${address.j} · K ${address.k}  /  cell ${id + 1}`;
-  const e = estimate(id, selectedProperty), p = meta.properties[selectedProperty];
+  const dynamic = mode === 'flow' && (selectedProperty === 0 || selectedProperty === 6);
+  const e = dynamic ? {value: scenario.value(id)} : selectedProperty === 6 ? {value: 1 - estimate(id, 0).value} : estimate(id, selectedProperty), p = selectedProperty === 6 ? {unit:'Sw, fraction'} : meta.properties[selectedProperty];
   $('cell-value').textContent = e ? `≈ ${fmt(e.value, selectedProperty)} ${p.unit.split(', ').at(-1)}` : 'Unavailable';
-  $('cell-caption').textContent = `${names[selectedProperty]}. Approximation from the encoded texture; not full-precision simulator data.`;
+  $('cell-caption').textContent = dynamic ? `Calculated ${selectedProperty === 6 ? 'water' : 'oil'} saturation · Day ${scenario.info.days[scenarioFrame(illustrativeDay, scenario.info.days)]}. Scenario, not measured data.` : `${selectedProperty === 6 ? 'Initial water saturation' : names[selectedProperty]}. Approximation from the encoded texture; not full-precision simulator data.`;
   $('cell-other').replaceChildren(...[0, 3, 5].filter(r => r !== selectedProperty).map(r => { const d = document.createElement('div'); const a = document.createElement('span'), b = document.createElement('b'); a.textContent = shortNames[r]; const v = estimate(id, r); b.textContent = v ? `≈ ${fmt(v.value, r)}` : '—'; d.append(a, b); return d; }));
 }
 function selectWell(name) {
@@ -67,7 +71,7 @@ function selectWell(name) {
   inspect.onclick = () => { showCell((w.j - 1) * meta.grid.nx + w.i - 1); $('selection-pin').hidden = true; };
   document.querySelectorAll('.well-button').forEach(b => { const active = b.dataset.well === name; b.classList.toggle('active', active); b.setAttribute('aria-pressed', active); });
   wellHotspots.forEach((b, n) => { b.classList.toggle('selected', name === n); b.setAttribute('aria-pressed', name === n); });
-  renderProduction();
+  renderProduction(); updateMotion();
 }
 function buildWellUI() {
   for (const w of meta.wells) {
@@ -80,15 +84,23 @@ function buildWellUI() {
   }
 }
 function updateMotion() {
-  const show = mode === 'flow' && (playing || illustrativeDay > 0);
-  $('motion-label').hidden = !show;
-  for (const p of particles) {
-    p.dot.hidden = !show; if (!show) continue;
-    const bound = wellBounds.get(p.well.name); if (!bound) continue;
-    let phase = (illustrativeDay / 2.8 + p.phase) % 1; if (p.well.kind === 'inj') phase = 1 - phase;
-    mv.updateHotspot({name: p.dot.slot, position: position({...p.well, y: bound.min + (bound.max - bound.min) * phase})});
+  const active = mode === 'flow';
+  // Previous decorative tube particles are retired in favor of solved surface flux.
+  particles.forEach(p => p.dot.hidden = true);
+  $('motion-label').hidden = !active;
+  $('motion-label').textContent = active ? 'Calculated transport' : '';
+  $('scenario-card').hidden = !active;
+  $('flow-caption').hidden = !active || !$('flow-toggle').checked;
+  if (scenario) {
+    scenario.paint(selectedProperty, active ? illustrativeDay : 0, active);
+    scenario.vectors(illustrativeDay, active && $('flow-toggle').checked);
+    const w = scenario.well(selectedWell, illustrativeDay);
+    $('well-scenario').hidden = !active;
+    $('well-scenario').textContent = w.injection > 0 ? `Calculated injection: ${w.injection.toFixed(5)} PV/day · assumed control` : `Calculated oil: ${w.oil.toFixed(5)} · water: ${w.water.toFixed(5)} PV/day`;
+    if (selectedCell !== null && (selectedProperty === 0 || selectedProperty === 6)) showCell(selectedCell);
   }
 }
+
 function layoutWellLabels() {
   if (!ready || !$('labels-toggle').matches('[aria-pressed="true"]')) return;
   const width = mv.clientWidth, height = mv.clientHeight, occupied = [];
@@ -130,20 +142,20 @@ function updateTransport() {
   const available = !production || !!history;
   const first = production ? history?.days[0] : 0;
   const last = production ? history?.days.at(-1) : ILLUSTRATION_END_DAY;
-  const day = production ? history?.days[productionIndex] : Number(illustrativeDay.toFixed(1));
+  const day = production ? history?.days[productionIndex] : scenario ? scenario.info.days[scenarioFrame(illustrativeDay, scenario.info.days)] : 0;
   const middle = production ? history?.days[Math.floor((history.days.length - 1) / 2)] : ILLUSTRATION_END_DAY / 2;
   $('play').disabled = !ready || (production && (!history || history.days.length < 2));
   $('play').textContent = playing ? 'Ⅱ' : '▶';
   $('play').setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${production ? 'production history' : 'animation days'}`);
   $('timeline').disabled = !ready || !available;
   $('timeline').max = production ? Math.max(0, (history?.days.length ?? 1) - 1) : ILLUSTRATION_END_DAY;
-  $('timeline').step = production ? 1 : .1;
+  $('timeline').step = production ? 1 : .25;
   $('timeline').value = production ? productionIndex : illustrativeDay;
   $('timeline').setAttribute('aria-label', production ? 'Recorded production day' : 'Animation day');
-  $('timeline').setAttribute('aria-valuetext', available ? `Day ${day}${production ? ', recorded sample' : ', animation timeline'}` : 'No daily history');
+  $('timeline').setAttribute('aria-valuetext', available ? `Day ${day}${production ? ', recorded sample' : ', calculated scenario'}` : 'No daily history');
   $('day-kind').textContent = production ? 'Recorded production day' : 'Animation day';
   $('time-label').textContent = available ? `Day ${day}` : 'Day —';
-  $('day-end').textContent = available ? `of ${last}${production ? ' · imported history' : ' · animation timeline'}` : 'Load daily history to begin';
+  $('day-end').textContent = available ? `of ${last}${production ? ' · imported history' : ' · calculated scenario'}` : 'Load daily history to begin';
   $('day-start').textContent = available ? `Day ${first}` : '—';
   $('day-middle').textContent = available ? `Day ${middle}` : '—';
   $('day-last').textContent = available ? `Day ${last}` : '—';
@@ -153,9 +165,9 @@ function setMode(next) {
   pause(); mode = next;
   $('mode-flow').classList.toggle('active', mode === 'flow'); $('mode-flow').setAttribute('aria-pressed', mode === 'flow');
   $('mode-production').classList.toggle('active', mode === 'production'); $('mode-production').setAttribute('aria-pressed', mode === 'production');
-  $('timeline-badge').textContent = mode === 'flow' ? 'Well-flow animation' : history ? `${history.days.length} recorded days` : 'History not supplied';
-  $('playback-note').textContent = mode === 'flow' ? 'Play through animation days 0–30. At 1×, one animation day advances per second. Drag the timeline to seek; move the camera by hand.' : history ? 'One recorded sample per second at 1×, using the actual imported days. No interpolation; blank rates stay missing. Model properties stay static and camera stays manual.' : 'Load a daily history CSV for actual production days and rates, or use Animation day to view well-flow movement.';
-  updateTransport(); updateMotion(); renderProduction();
+  $('timeline-badge').textContent = mode === 'flow' ? 'Calculated scenario' : history ? `${history.days.length} recorded days` : 'History not supplied';
+  $('playback-note').textContent = mode === 'flow' ? 'Calculated scenario days 0–30. At 1×, one assumed day advances per second. Output saved every 0.25 day. Camera remains manual.' : history ? 'One recorded sample per second at 1×, using the actual imported days. No interpolation; blank rates stay missing. Model properties stay static and camera stays manual.' : 'Load a daily history CSV for actual production days and rates, or use Animation day to view well-flow movement.';
+  setProperty(selectedProperty); updateTransport(); updateMotion(); renderProduction();
 }
 function resetPlayback() { pause(); illustrativeDay = 0; productionIndex = 0; playbackRemainder = 0; updateMotion(); updateTransport(); renderProduction(); }
 function setView(view) {
@@ -203,8 +215,9 @@ document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(
 $('reset-view').onclick = () => setView('perspective');
 for (const [id, factor] of [['zoom-in', .8], ['zoom-out', 1.25]]) $(id).onclick = () => { const o = mv.getCameraOrbit(); mv.cameraOrbit = `${o.theta}rad ${o.phi}rad ${Math.max(.55, Math.min(2.5, o.radius * factor))}m`; };
 $('labels-toggle').onclick = () => { const show = $('labels-toggle').getAttribute('aria-pressed') !== 'true'; $('labels-toggle').setAttribute('aria-pressed', show); wellHotspots.forEach(b => b.hidden = !show); layoutWellLabels(); };
-mv.addEventListener('camera-change', () => requestAnimationFrame(layoutWellLabels));
-new ResizeObserver(() => requestAnimationFrame(layoutWellLabels)).observe(mv);
+mv.addEventListener('camera-change', () => requestAnimationFrame(() => { layoutWellLabels(); scenario?.vectors(illustrativeDay, mode === 'flow' && $('flow-toggle').checked); }));
+new ResizeObserver(() => requestAnimationFrame(() => { layoutWellLabels(); scenario?.vectors(illustrativeDay, mode === 'flow' && $('flow-toggle').checked); })).observe(mv);
+for (const id of ['grid-edges', 'flow-toggle', 'contours']) $(id).onchange = () => { scenario?.refresh(); setProperty(selectedProperty); updateMotion(); };
 $('clear-cell').onclick = () => { selectedCell = null; $('cell-prompt').hidden = false; $('cell-readout').hidden = true; $('clear-cell').hidden = true; $('selection-pin').hidden = true; };
 mv.addEventListener('pointerdown', e => { pointerStart = {x: e.clientX, y: e.clientY}; });
 mv.addEventListener('click', e => {
@@ -229,9 +242,11 @@ $('history-file').onchange = async e => {
 };
 $('clear-history').onclick = () => { pause(); history = null; sourceName = ''; productionIndex = 0; $('import-status').textContent = 'Stays in this browser session. Nothing is uploaded.'; setMode(mode); };
 $('rate-kind').onchange = renderProduction;
-const showARInfo = () => { $('ar-status').textContent = mv.canActivateAR ? 'This browser reports an available AR launch path.' : 'AR launch is not available in this browser. The interactive 3D view remains available.'; $('ar-dialog').showModal(); };
+const showARInfo = () => { $('ar-launch').disabled = !arModel.canActivateAR || !arModel.loaded; $('ar-status').textContent = arModel.canActivateAR ? 'This browser reports an available AR launch path.' : 'AR launch is not available in this browser. The interactive 3D view remains available.'; $('ar-dialog').showModal(); };
 $('ar-info').onclick = showARInfo; $('close-ar').onclick = () => $('ar-dialog').close();
-$('ar-open').onclick = async () => { if (!assetReady) return; pause(); if (mv.canActivateAR) { try { await mv.activateAR(); } catch { showARInfo(); } } else showARInfo(); };
+$('ar-open').onclick = () => { pause(); showARInfo(); };
+$('ar-launch').onclick = async () => { if (!arModel.canActivateAR || !arModel.loaded) return; try { await arModel.activateAR(); } catch { $('ar-status').textContent = 'AR launch did not complete. Use a supported phone browser or download the colored asset.'; } };
+arModel.addEventListener('load', () => $('ar-launch').disabled = !arModel.canActivateAR);
 mv.addEventListener('load', () => { assetReady = true; $('ar-open').disabled = !ready; $('loading').hidden = true; requestAnimationFrame(layoutWellLabels); });
 mv.addEventListener('ar-status', e => { if (e.detail.status === 'failed') showARInfo(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
@@ -248,11 +263,12 @@ async function bootstrap() {
   const context = canvas.getContext('2d', {willReadFrequently: true}); context.drawImage(bitmap, 0, 0); texture = context.getImageData(0, 0, canvas.width, canvas.height).data; bitmap.close();
   if (canvas.width !== 1870 || canvas.height !== 6) throw new Error('Unexpected property texture dimensions.');
   for (const mesh of glb.json.meshes.filter(m => m.name !== 'reservoir')) { const p = accessorFloats(glb, mesh.primitives[0].attributes.POSITION); const y = p.filter((_, i) => i % 3 === 1); wellBounds.set(mesh.name, {min: Math.min(...y), max: Math.max(...y)}); }
-  meta.properties.forEach((p, i) => { const b = document.createElement('button'); b.className = 'property'; b.innerHTML = `<span class="prop-index">0${i + 1}</span><span>${shortNames[i]}</span><span class="prop-tag">${p.scale === 'log' ? 'LOG' : i === 5 ? 'FT' : ''}</span>`; b.onclick = () => setProperty(i); $('properties').append(b); });
+  [...meta.properties, {scale:'lin'}].forEach((p, i) => { const b = document.createElement('button'); b.className = 'property'; b.innerHTML = `<span class="prop-index">0${i + 1}</span><span>${i === 6 ? 'Water saturation' : shortNames[i]}</span><span class="prop-tag">${p.scale === 'log' ? 'LOG' : i === 5 ? 'FT' : ''}</span>`; b.onclick = () => setProperty(i); $('properties').append(b); });
   await Promise.race([customElements.whenDefined('model-viewer'), new Promise((_, reject) => setTimeout(() => reject(new Error('The viewer library did not become available. Reload to try again.')), 30000))]);
   if (!mv.loaded) await new Promise((resolve, reject) => { mv.addEventListener('load', resolve, {once: true}); mv.addEventListener('error', reject, {once: true}); });
+  scenario = await createScenarioView(mv, meta, texture, url => fetchChecked(url).then(r => r.json()));
   buildWellUI(); ready = true; assetReady = true; $('loading').hidden = true; $('ar-open').disabled = false;
-  setProperty(0); selectWell(selectedWell); setView('perspective'); updateTransport(); requestAnimationFrame(layoutWellLabels);
+  setProperty(0); selectWell(selectedWell); setView('perspective'); updateTransport(); updateMotion(); requestAnimationFrame(layoutWellLabels);
   performance.mark('reservoir-ready'); document.documentElement.dataset.readyMs = (performance.now() - started).toFixed(0);
 }
 bootstrap().catch(e => fail(`Viewer initialization failed: ${e.message || 'Please reload the page.'}`));
