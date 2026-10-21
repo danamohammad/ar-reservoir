@@ -7,8 +7,8 @@ const shortNames = ['Oil saturation', 'Permeability · het.', 'Permeability · h
 const notes = ['Initial state from EQUIL: oil–water contact 6,750 ft; connate water saturation 0.25. No time evolution.', 'Horizontal permeability. Logarithmic scale preserves variation across three orders of magnitude.', 'Original homogeneous-case permeability row. Values are static.', 'Original heterogeneous porosity, shown as a fraction of bulk volume.', 'Original homogeneous-case porosity. Values are static.', 'Original cell-centre true vertical depth, in feet. The vertical scale is not exaggerated.'];
 const fmt = (v, row) => row === 5 ? Math.round(v).toLocaleString('en-US') : Math.abs(v) < 1 ? v.toFixed(3) : Number(v.toPrecision(3)).toLocaleString('en-US');
 const position = p => `${p.x}m ${p.y}m ${p.z}m`;
-let meta, glb, texture, sampler, ready = false, selectedProperty = 0, selectedWell = 'PROD-1', selectedCell = null;
-let mode = 'tour', playing = false, tourTime = 0, productionIndex = 0, history = null, sourceName = '', playbackRemainder = 0;
+let meta, glb, texture, arManifest, assetReady = false, ready = false, selectedProperty = 0, selectedWell = 'PROD-1', selectedCell = null;
+let mode = 'flow', playing = false, flowTime = 0, productionIndex = 0, history = null, sourceName = '', playbackRemainder = 0;
 let animationFrame = null, lastFrame = null, lastPaint = 0, pointerStart = null;
 const wellBounds = new Map(), wellHotspots = new Map(), particles = [];
 const fittedRadius = () => mv.clientWidth < 500 ? 1.28 : 1.12;
@@ -24,7 +24,19 @@ function setProperty(index) {
   const mid = p.scale === 'log' ? Math.sqrt(p.min * p.max) : (p.min + p.max) / 2;
   $('legend-ticks').replaceChildren(...[p.min, mid, p.max].map(v => { const e = document.createElement('span'); e.textContent = fmt(v, index); return e; }));
   $('legend-unit').textContent = p.unit; $('property-note').textContent = notes[index];
-  if (sampler) sampler.setOffset({u: 0, v: p.row / meta.properties.length});
+  const asset = arManifest.properties[index];
+  mv.setAttribute('ios-src', asset.usdz);
+  $('ar-glb').href = asset.glb; $('ar-usdz').href = asset.usdz;
+  $('ar-property').textContent = `Selected AR property: ${names[index]}.`;
+  if (mv.getAttribute('src') !== asset.glb) {
+    // Preserve a manually chosen camera when swapping an identical mesh.
+    const orbit = mv.getCameraOrbit(), target = mv.getCameraTarget();
+    mv.cameraOrbit = `${orbit.theta}rad ${orbit.phi}rad ${orbit.radius}m`;
+    mv.cameraTarget = position(target);
+    assetReady = false; $('ar-open').disabled = true;
+    $('loading').hidden = false; mv.setAttribute('src', asset.glb);
+  }
+
   if (selectedCell !== null) showCell(selectedCell);
 }
 function estimate(cell, row) {
@@ -67,12 +79,12 @@ function buildWellUI() {
   }
 }
 function updateMotion() {
-  const show = mode === 'tour' && playing;
+  const show = mode === 'flow' && (playing || flowTime > 0);
   $('motion-label').hidden = !show;
   for (const p of particles) {
     p.dot.hidden = !show; if (!show) continue;
     const bound = wellBounds.get(p.well.name); if (!bound) continue;
-    let phase = (tourTime / 2.8 + p.phase) % 1; if (p.well.kind === 'inj') phase = 1 - phase;
+    let phase = (flowTime / 2.8 + p.phase) % 1; if (p.well.kind === 'inj') phase = 1 - phase;
     mv.updateHotspot({name: p.dot.slot, position: position({...p.well, y: bound.min + (bound.max - bound.min) * phase})});
   }
 }
@@ -97,14 +109,10 @@ function layoutWellLabels() {
     const stem = el.querySelector('.well-stem'); stem.style.height = `${Math.hypot(chosen.dx, chosen.dy)}px`; stem.style.transform = `rotate(${Math.atan2(chosen.dx, -chosen.dy)}rad)`;
   }
 }
-function applyTourCamera() {
-  mv.cameraOrbit = `${35 + tourTime * 12}deg ${65 - 12 * Math.sin(tourTime / 30 * Math.PI * 2)}deg ${fittedRadius()}m`;
-  document.querySelectorAll('[data-view]').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
-}
 function pause() { playing = false; if (animationFrame !== null) cancelAnimationFrame(animationFrame); animationFrame = null; lastFrame = null; updateTransport(); if (ready) updateMotion(); }
 function play() {
   if (!ready || (mode === 'production' && !history)) return;
-  if (mode === 'tour' && tourTime >= 30) tourTime = 0;
+  if (mode === 'flow' && flowTime >= 30) flowTime = 0;
   if (mode === 'production' && productionIndex >= history.days.length - 1) productionIndex = 0;
   playing = true; lastFrame = null; playbackRemainder = 0; updateTransport(); animationFrame = requestAnimationFrame(tick);
 }
@@ -112,32 +120,32 @@ function tick(now) {
   if (!playing) return;
   const dt = lastFrame === null ? 0 : Math.min((now - lastFrame) / 1000, .1); lastFrame = now;
   const speed = Number($('speed').value);
-  if (mode === 'tour') { tourTime = Math.min(30, tourTime + dt * speed); if (now - lastPaint > 32) { applyTourCamera(); updateMotion(); updateTransport(); layoutWellLabels(); lastPaint = now; } if (tourTime >= 30) return pause(); }
+  if (mode === 'flow') { flowTime = Math.min(30, flowTime + dt * speed); if (now - lastPaint > 32) { updateMotion(); updateTransport(); layoutWellLabels(); lastPaint = now; } if (flowTime >= 30) return pause(); }
   else { playbackRemainder += dt * speed; if (playbackRemainder >= 1) { const step = Math.floor(playbackRemainder); playbackRemainder -= step; productionIndex = Math.min(history.days.length - 1, productionIndex + step); updateTransport(); renderProduction(); if (productionIndex === history.days.length - 1) return pause(); } }
   animationFrame = requestAnimationFrame(tick);
 }
 function updateTransport() {
   const production = mode === 'production';
   $('play').disabled = !ready || (production && (!history || history.days.length < 2));
-  $('play').textContent = playing ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${production ? 'production history' : 'presentation'}`);
+  $('play').textContent = playing ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${production ? 'production history' : 'illustrative well flow'}`);
   $('timeline').disabled = !ready || (production && !history);
   $('timeline').max = production ? Math.max(0, (history?.days.length ?? 1) - 1) : 30;
-  $('timeline').step = production ? 1 : .1; $('timeline').value = production ? productionIndex : tourTime;
-  $('timeline').setAttribute('aria-label', production ? 'Recorded day' : 'Presentation time in seconds');
+  $('timeline').step = production ? 1 : .1; $('timeline').value = production ? productionIndex : flowTime;
+  $('timeline').setAttribute('aria-label', production ? 'Recorded day' : 'Illustrative flow time in seconds');
   if (production) { const day = history?.days[productionIndex]; $('time-label').textContent = history ? `Day ${day} / ${history.days.at(-1)}` : 'Days — awaiting daily history'; $('timeline').setAttribute('aria-valuetext', history ? `Day ${day}` : 'No daily history'); }
-  else { const time = `0:${String(Math.floor(tourTime)).padStart(2, '0')}`; $('time-label').innerHTML = `${time} <span>/ 0:30</span>`; $('timeline').setAttribute('aria-valuetext', `${tourTime.toFixed(1)} seconds`); }
+  else { const time = `0:${String(Math.floor(flowTime)).padStart(2, '0')}`; $('time-label').innerHTML = `${time} <span>/ 0:30</span>`; $('timeline').setAttribute('aria-valuetext', `${flowTime.toFixed(1)} seconds`); }
 }
 function setMode(next) {
   pause(); mode = next;
-  $('mode-tour').classList.toggle('active', mode === 'tour'); $('mode-tour').setAttribute('aria-pressed', mode === 'tour');
+  $('mode-flow').classList.toggle('active', mode === 'flow'); $('mode-flow').setAttribute('aria-pressed', mode === 'flow');
   $('mode-production').classList.toggle('active', mode === 'production'); $('mode-production').setAttribute('aria-pressed', mode === 'production');
-  $('timeline-badge').textContent = mode === 'tour' ? '30-second model tour' : history ? `${history.days.length} recorded days` : 'History not supplied';
-  $('playback-note').textContent = mode === 'tour' ? 'A camera tour with directional well cues. The reservoir properties remain static.' : history ? 'One recorded day per second at 1×. Exact samples only; blank values stay missing. Geometry and property colors remain static.' : 'Daily rates and restart frames were not supplied. Load a CSV to enable recorded-day playback. The model remains static.';
+  $('timeline-badge').textContent = mode === 'flow' ? '30-second illustration' : history ? `${history.days.length} recorded days` : 'History not supplied';
+  $('playback-note').textContent = mode === 'flow' ? 'Illustrative oil-up / injection-down cues along existing well markers. Not simulated reservoir transport; speed is uncalibrated. Camera stays manual.' : history ? 'One recorded day per second at 1×. Exact samples only; blank values stay missing. Geometry and property colors remain static.' : 'Daily rates and restart frames were not supplied. Load a CSV to enable recorded-day playback. The model remains static.';
   updateTransport(); updateMotion(); renderProduction();
 }
-function resetPlayback() { pause(); tourTime = 0; productionIndex = 0; playbackRemainder = 0; if (mode === 'tour') setView('perspective'); updateTransport(); renderProduction(); }
+function resetPlayback() { pause(); flowTime = 0; productionIndex = 0; playbackRemainder = 0; updateMotion(); updateTransport(); renderProduction(); }
 function setView(view) {
-  pause(); const radius = fittedRadius(); const orbits = {perspective: `35deg 65deg ${radius}m`, top: `0deg 5deg ${radius}m`, side: `90deg 87deg ${radius}m`};
+  const radius = fittedRadius(); const orbits = {perspective: `35deg 65deg ${radius}m`, top: `0deg 5deg ${radius}m`, side: `90deg 87deg ${radius}m`};
   mv.cameraTarget = '0m 0.035m 0m'; mv.cameraOrbit = orbits[view];
   // Wheel/pinch zoom can change the internal FOV without changing its attribute.
   mv.fieldOfView = '35deg'; mv.requestUpdate('fieldOfView');
@@ -174,23 +182,22 @@ function drawChart(key, day) {
   root.append(svg); root.setAttribute('aria-label', `${selectedWell}, ${values.length} discrete ${key} samples, days ${first} to ${last}. Current day ${day}.`);
 }
 
-$('mode-tour').onclick = () => setMode('tour'); $('mode-production').onclick = () => setMode('production');
+$('mode-flow').onclick = () => setMode('flow'); $('mode-production').onclick = () => setMode('production');
 $('play').onclick = () => playing ? pause() : play(); $('reset-playback').onclick = resetPlayback;
-$('timeline').oninput = () => { const value = Number($('timeline').value); pause(); if (mode === 'tour') { tourTime = value; applyTourCamera(); } else { productionIndex = value; renderProduction(); } updateTransport(); };
+$('timeline').oninput = () => { const value = Number($('timeline').value); pause(); if (mode === 'flow') { flowTime = value; updateMotion(); } else { productionIndex = value; renderProduction(); } updateTransport(); };
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('reset-view').onclick = () => setView('perspective');
-for (const [id, factor] of [['zoom-in', .8], ['zoom-out', 1.25]]) $(id).onclick = () => { pause(); const o = mv.getCameraOrbit(); mv.cameraOrbit = `${o.theta}rad ${o.phi}rad ${Math.max(.55, Math.min(2.5, o.radius * factor))}m`; };
+for (const [id, factor] of [['zoom-in', .8], ['zoom-out', 1.25]]) $(id).onclick = () => { const o = mv.getCameraOrbit(); mv.cameraOrbit = `${o.theta}rad ${o.phi}rad ${Math.max(.55, Math.min(2.5, o.radius * factor))}m`; };
 $('labels-toggle').onclick = () => { const show = $('labels-toggle').getAttribute('aria-pressed') !== 'true'; $('labels-toggle').setAttribute('aria-pressed', show); wellHotspots.forEach(b => b.hidden = !show); layoutWellLabels(); };
 mv.addEventListener('camera-change', () => requestAnimationFrame(layoutWellLabels));
-let narrowScene = mv.clientWidth < 500;
-new ResizeObserver(() => { const next = mv.clientWidth < 500; if (ready && next !== narrowScene) setView('perspective'); narrowScene = next; requestAnimationFrame(layoutWellLabels); }).observe(mv);
+new ResizeObserver(() => requestAnimationFrame(layoutWellLabels)).observe(mv);
 $('clear-cell').onclick = () => { selectedCell = null; $('cell-prompt').hidden = false; $('cell-readout').hidden = true; $('clear-cell').hidden = true; $('selection-pin').hidden = true; };
-mv.addEventListener('pointerdown', e => { pointerStart = {x: e.clientX, y: e.clientY}; if (playing && mode === 'tour') pause(); });
+mv.addEventListener('pointerdown', e => { pointerStart = {x: e.clientX, y: e.clientY}; });
 mv.addEventListener('click', e => {
   if (!ready || !pointerStart || Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y) > 6 || e.target.closest('button')) return;
   const hit = mv.positionAndNormalFromPoint(e.clientX, e.clientY);
   if (!hit?.uv) return;
-  const id = Math.floor((hit.uv.u ?? hit.uv.x) * meta.grid.ncell); if (!cellAddress(id, meta.grid)) return;
+  const id = Math.floor((hit.uv.v ?? hit.uv.y) * arManifest.atlas.rows) * arManifest.atlas.columns + Math.floor((hit.uv.u ?? hit.uv.x) * arManifest.atlas.columns); if (!cellAddress(id, meta.grid)) return;
   showCell(id); $('selection-pin').hidden = false;
   mv.updateHotspot({name: 'hotspot-selection', position: position(hit.position), normal: `${hit.normal.x} ${hit.normal.y} ${hit.normal.z}`});
 });
@@ -210,15 +217,16 @@ $('clear-history').onclick = () => { pause(); history = null; sourceName = ''; p
 $('rate-kind').onchange = renderProduction;
 const showARInfo = () => { $('ar-status').textContent = mv.canActivateAR ? 'This browser reports an available AR launch path.' : 'AR launch is not available in this browser. The interactive 3D view remains available.'; $('ar-dialog').showModal(); };
 $('ar-info').onclick = showARInfo; $('close-ar').onclick = () => $('ar-dialog').close();
-$('ar-open').onclick = async () => { if (mv.canActivateAR) { try { await mv.activateAR(); } catch { showARInfo(); } } else showARInfo(); };
+$('ar-open').onclick = async () => { if (!assetReady) return; pause(); if (mv.canActivateAR) { try { await mv.activateAR(); } catch { showARInfo(); } } else showARInfo(); };
+mv.addEventListener('load', () => { assetReady = true; $('ar-open').disabled = !ready; $('loading').hidden = true; requestAnimationFrame(layoutWellLabels); });
 mv.addEventListener('ar-status', e => { if (e.detail.status === 'failed') showARInfo(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
-mv.addEventListener('error', () => fail('The model could not load. Check your connection and reload, or use the original GLB / USDZ downloads in AR information.'));
+mv.addEventListener('error', () => fail('The model could not load. Check your connection and reload, or use the selected-property GLB / USDZ downloads in AR information.'));
 
 async function bootstrap() {
   const started = performance.now();
-  const [metadata, buffer] = await Promise.all([fetchChecked('model.json').then(r => r.json()), fetchChecked('reservoir.glb').then(r => r.arrayBuffer())]);
-  meta = metadata; glb = parseGLB(buffer);
+  const [metadata, buffer, variants] = await Promise.all([fetchChecked('model.json').then(r => r.json()), fetchChecked('reservoir.glb').then(r => r.arrayBuffer()), fetchChecked('ar/manifest.json').then(r => r.json())]);
+  arManifest = variants; meta = metadata; glb = parseGLB(buffer);
   if (meta.grid.ncell !== 1870 || meta.properties.length !== 6) throw new Error('The expected original model metadata was not found.');
   const image = glb.json.images[0], bv = glb.json.bufferViews[image.bufferView];
   const blob = new Blob([new Uint8Array(buffer, glb.binaryOffset + bv.byteOffset, bv.byteLength)], {type: image.mimeType});
@@ -229,10 +237,7 @@ async function bootstrap() {
   meta.properties.forEach((p, i) => { const b = document.createElement('button'); b.className = 'property'; b.innerHTML = `<span class="prop-index">0${i + 1}</span><span>${shortNames[i]}</span><span class="prop-tag">${p.scale === 'log' ? 'LOG' : i === 5 ? 'FT' : ''}</span>`; b.onclick = () => setProperty(i); $('properties').append(b); });
   await Promise.race([customElements.whenDefined('model-viewer'), new Promise((_, reject) => setTimeout(() => reject(new Error('The viewer library did not become available. Reload to try again.')), 30000))]);
   if (!mv.loaded) await new Promise((resolve, reject) => { mv.addEventListener('load', resolve, {once: true}); mv.addEventListener('error', reject, {once: true}); });
-  sampler = mv.model.materials.find(m => m.name === 'reservoir-property').pbrMetallicRoughness.baseColorTexture.texture.sampler;
-  // Material presentation only. No geometry, property texture or source files are changed.
-  for (const m of mv.model.materials.filter(m => ['producer', 'injector'].includes(m.name))) { m.pbrMetallicRoughness.setMetallicFactor(.15); m.pbrMetallicRoughness.setRoughnessFactor(.28); }
-  buildWellUI(); ready = true; $('loading').hidden = true; $('ar-open').disabled = false;
+  buildWellUI(); ready = true; assetReady = true; $('loading').hidden = true; $('ar-open').disabled = false;
   setProperty(0); selectWell(selectedWell); setView('perspective'); updateTransport(); requestAnimationFrame(layoutWellLabels);
   performance.mark('reservoir-ready'); document.documentElement.dataset.readyMs = (performance.now() - started).toFixed(0);
 }

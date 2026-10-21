@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "atlas": {
+    "columns": 64,
+    "rows": 32,
+    "tilePixels": 16
+  },
+  "sourceGLBSha256": "3566eae7ca1ddb380f0712c34fd951eb2f64d5362fbb5a0bf71b3e32ac32d8c0",
+  "properties": [
+    {
+      "row": 0,
+      "name": "OilSat (initial)",
+      "glb": "ar/oil-saturation-v1.glb",
+      "usdz": "ar/oil-saturation-v1.usdz",
+      "glbSha256": "7f2adb82464a040574cf59ffef5d55e01d3414a5206757876dde2a7b5c0556a0",
+      "usdzSha256": "ab2211b2681e0ee9806e086a6efb5b4c1d90965a4d0974ee89848def9f7da202"
+    },
+    {
+      "row": 1,
+      "name": "PERMX heterogeneous",
+      "glb": "ar/permeability-het-v1.glb",
+      "usdz": "ar/permeability-het-v1.usdz",
+      "glbSha256": "6cf9c981e198efff56290a17567835a1b93e79a53429dba3425f2864f1001972",
+      "usdzSha256": "2eee17a2f0ecc2cc553a21a44fc8a4a27d4632bd138604f48f54b55c1f8a6be2"
+    },
+    {
+      "row": 2,
+      "name": "PERMX homogeneous",
+      "glb": "ar/permeability-hom-v1.glb",
+      "usdz": "ar/permeability-hom-v1.usdz",
+      "glbSha256": "ee699bfb4ae286d56043316fe420bff902239a473660c9dc6b95b82ef2438170",
+      "usdzSha256": "3ac1c602f2f6e1a0aa74fba517cccf40c37da73d3500f03954727bf296ec6dde"
+    },
+    {
+      "row": 3,
+      "name": "Porosity heterogeneous",
+      "glb": "ar/porosity-het-v1.glb",
+      "usdz": "ar/porosity-het-v1.usdz",
+      "glbSha256": "7f5bb002df2a6b4140e9729fad2cd701a27f79f3a6ae4d06941f54b69efa61b6",
+      "usdzSha256": "2edad43ef866e2775d6a0f94f28d3dc1230e5d429eb36b1ef4fc0ed925355ab0"
+    },
+    {
+      "row": 4,
+      "name": "Porosity homogeneous",
+      "glb": "ar/porosity-hom-v1.glb",
+      "usdz": "ar/porosity-hom-v1.usdz",
+      "glbSha256": "c17e1a1e89fe7a25601267f3f892fc953f34922f5c7128dcab1fe503bfed7dab",
+      "usdzSha256": "6577204280fb23b04776fe8687db0fc066c49a7434777c8fabf35fe36247a669"
+    },
+    {
+      "row": 5,
+      "name": "Depth",
+      "glb": "ar/depth-v1.glb",
+      "usdz": "ar/depth-v1.usdz",
+      "glbSha256": "2c5d2c202961dc8853a8f09b2ed244c826c994f3cc78c4235e313f507e73e50b",
+      "usdzSha256": "45f143c0f933e8fbc706f16824b5bf816a831a3e96a1bbb7cd260d73c4db7eb9"
+    }
+  ]
+}

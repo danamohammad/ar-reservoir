@@ -19,8 +19,9 @@ permeability (log scale), porosity, and depth.
 | File | |
 |---|---|
 | `index.html` | the viewer |
-| `reservoir.glb` | model for web + Android AR |
-| `reservoir.usdz` | model for iOS AR Quick Look |
+| `reservoir.glb` | unchanged original source model |
+| `reservoir.usdz` | unchanged original export, retained for provenance |
+| `ar/` | six textured GLB/USDZ pairs used by the viewer and AR |
 | `model.json` | property legend and well metadata |
 | `model-viewer.min.js` | viewer library (vendored, no CDN) |
 
@@ -28,7 +29,7 @@ Static files only — no build step, no server, no tracking.
 
 ## Explorer upgrade
 
-The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, a presentation tour, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
+The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, illustrative well-flow playback with a manual camera, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
 
 The six reservoir properties are **static**. No production time series was supplied. Presentation motion is explicitly illustrative; daily production playback requires user-supplied records. Cell values are approximate reconstructions from the original color texture. Read [DATA-PROVENANCE.md](DATA-PROVENANCE.md) for scientific limits and the exact import schema.
 
