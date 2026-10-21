@@ -1,4 +1,4 @@
-# AR Reservoir
+# AR Reservoir — Reservoir Explorer
 
 Scan-to-view 3D / augmented-reality viewer for a reservoir simulation model.
 
@@ -25,3 +25,15 @@ permeability (log scale), porosity, and depth.
 | `model-viewer.min.js` | viewer library (vendored, no CDN) |
 
 Static files only — no build step, no server, no tracking.
+
+## Explorer upgrade
+
+The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, a presentation tour, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
+
+The six reservoir properties are **static**. No production time series was supplied. Presentation motion is explicitly illustrative; daily production playback requires user-supplied records. Cell values are approximate reconstructions from the original color texture. Read [DATA-PROVENANCE.md](DATA-PROVENANCE.md) for scientific limits and the exact import schema.
+
+Preview: `python3 -m http.server 8773 --bind 127.0.0.1`, then open `http://127.0.0.1:8773/`.
+
+Tests: `node --test tests/data.test.mjs`. The tests cover import validation, exact-day sampling, missing values, cell addressing, texture quantization bounds, and unchanged model hashes. Numerical test fixtures are synthetic test-only values and are never loaded into the live viewer.
+
+GitHub Pages publishes `main` from `/`. Baseline before the interface upgrade: `797f9f22c6926736e386df009d4ecd899365043b`. Use a revert commit for rollback, preserving repository history. Core viewer dependencies and model files are served from this repository; no third-party runtime font or JavaScript CDN is required.
