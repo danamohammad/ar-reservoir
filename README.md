@@ -29,7 +29,7 @@ Static files only — no build step, no server, no tracking.
 
 ## Explorer upgrade
 
-The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, illustrative well-flow playback with a manual camera, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
+The interface adds well labels, selection and grid-column information, cell inspection, explicit units, camera presets, responsive controls, a readable Animation day counter and scrubber tied to well-flow playback, with a manual camera, and optional local daily-production CSV playback. It preserves the original model assets and printed QR URL.
 
 The six reservoir properties are **static**. No production time series was supplied. Presentation motion is explicitly illustrative; daily production playback requires user-supplied records. Cell values are approximate reconstructions from the original color texture. Read [DATA-PROVENANCE.md](DATA-PROVENANCE.md) for scientific limits and the exact import schema.
 

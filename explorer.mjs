@@ -8,9 +8,10 @@ const notes = ['Initial state from EQUIL: oil–water contact 6,750 ft; connate 
 const fmt = (v, row) => row === 5 ? Math.round(v).toLocaleString('en-US') : Math.abs(v) < 1 ? v.toFixed(3) : Number(v.toPrecision(3)).toLocaleString('en-US');
 const position = p => `${p.x}m ${p.y}m ${p.z}m`;
 let meta, glb, texture, arManifest, assetReady = false, ready = false, selectedProperty = 0, selectedWell = 'PROD-1', selectedCell = null;
-let mode = 'flow', playing = false, flowTime = 0, productionIndex = 0, history = null, sourceName = '', playbackRemainder = 0;
+let mode = 'flow', playing = false, illustrativeDay = 0, productionIndex = 0, history = null, sourceName = '', playbackRemainder = 0;
 let animationFrame = null, lastFrame = null, lastPaint = 0, pointerStart = null;
 const wellBounds = new Map(), wellHotspots = new Map(), particles = [];
+const ILLUSTRATION_END_DAY = 30;
 const fittedRadius = () => mv.clientWidth < 500 ? 1.28 : 1.12;
 const fail = message => { $('scene-error').hidden = false; $('scene-error').textContent = message; $('loading').hidden = true; pause(); };
 const fetchChecked = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r; };
@@ -79,12 +80,12 @@ function buildWellUI() {
   }
 }
 function updateMotion() {
-  const show = mode === 'flow' && (playing || flowTime > 0);
+  const show = mode === 'flow' && (playing || illustrativeDay > 0);
   $('motion-label').hidden = !show;
   for (const p of particles) {
     p.dot.hidden = !show; if (!show) continue;
     const bound = wellBounds.get(p.well.name); if (!bound) continue;
-    let phase = (flowTime / 2.8 + p.phase) % 1; if (p.well.kind === 'inj') phase = 1 - phase;
+    let phase = (illustrativeDay / 2.8 + p.phase) % 1; if (p.well.kind === 'inj') phase = 1 - phase;
     mv.updateHotspot({name: p.dot.slot, position: position({...p.well, y: bound.min + (bound.max - bound.min) * phase})});
   }
 }
@@ -112,7 +113,7 @@ function layoutWellLabels() {
 function pause() { playing = false; if (animationFrame !== null) cancelAnimationFrame(animationFrame); animationFrame = null; lastFrame = null; updateTransport(); if (ready) updateMotion(); }
 function play() {
   if (!ready || (mode === 'production' && !history)) return;
-  if (mode === 'flow' && flowTime >= 30) flowTime = 0;
+  if (mode === 'flow' && illustrativeDay >= ILLUSTRATION_END_DAY) illustrativeDay = 0;
   if (mode === 'production' && productionIndex >= history.days.length - 1) productionIndex = 0;
   playing = true; lastFrame = null; playbackRemainder = 0; updateTransport(); animationFrame = requestAnimationFrame(tick);
 }
@@ -120,30 +121,43 @@ function tick(now) {
   if (!playing) return;
   const dt = lastFrame === null ? 0 : Math.min((now - lastFrame) / 1000, .1); lastFrame = now;
   const speed = Number($('speed').value);
-  if (mode === 'flow') { flowTime = Math.min(30, flowTime + dt * speed); if (now - lastPaint > 32) { updateMotion(); updateTransport(); layoutWellLabels(); lastPaint = now; } if (flowTime >= 30) return pause(); }
+  if (mode === 'flow') { illustrativeDay = Math.min(ILLUSTRATION_END_DAY, illustrativeDay + dt * speed); if (now - lastPaint > 32) { updateMotion(); updateTransport(); layoutWellLabels(); lastPaint = now; } if (illustrativeDay >= ILLUSTRATION_END_DAY) return pause(); }
   else { playbackRemainder += dt * speed; if (playbackRemainder >= 1) { const step = Math.floor(playbackRemainder); playbackRemainder -= step; productionIndex = Math.min(history.days.length - 1, productionIndex + step); updateTransport(); renderProduction(); if (productionIndex === history.days.length - 1) return pause(); } }
   animationFrame = requestAnimationFrame(tick);
 }
 function updateTransport() {
   const production = mode === 'production';
+  const available = !production || !!history;
+  const first = production ? history?.days[0] : 0;
+  const last = production ? history?.days.at(-1) : ILLUSTRATION_END_DAY;
+  const day = production ? history?.days[productionIndex] : Number(illustrativeDay.toFixed(1));
+  const middle = production ? history?.days[Math.floor((history.days.length - 1) / 2)] : ILLUSTRATION_END_DAY / 2;
   $('play').disabled = !ready || (production && (!history || history.days.length < 2));
-  $('play').textContent = playing ? 'Ⅱ' : '▶'; $('play').setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${production ? 'production history' : 'illustrative well flow'}`);
-  $('timeline').disabled = !ready || (production && !history);
-  $('timeline').max = production ? Math.max(0, (history?.days.length ?? 1) - 1) : 30;
-  $('timeline').step = production ? 1 : .1; $('timeline').value = production ? productionIndex : flowTime;
-  $('timeline').setAttribute('aria-label', production ? 'Recorded day' : 'Illustrative flow time in seconds');
-  if (production) { const day = history?.days[productionIndex]; $('time-label').textContent = history ? `Day ${day} / ${history.days.at(-1)}` : 'Days — awaiting daily history'; $('timeline').setAttribute('aria-valuetext', history ? `Day ${day}` : 'No daily history'); }
-  else { const time = `0:${String(Math.floor(flowTime)).padStart(2, '0')}`; $('time-label').innerHTML = `${time} <span>/ 0:30</span>`; $('timeline').setAttribute('aria-valuetext', `${flowTime.toFixed(1)} seconds`); }
+  $('play').textContent = playing ? 'Ⅱ' : '▶';
+  $('play').setAttribute('aria-label', `${playing ? 'Pause' : 'Play'} ${production ? 'production history' : 'animation days'}`);
+  $('timeline').disabled = !ready || !available;
+  $('timeline').max = production ? Math.max(0, (history?.days.length ?? 1) - 1) : ILLUSTRATION_END_DAY;
+  $('timeline').step = production ? 1 : .1;
+  $('timeline').value = production ? productionIndex : illustrativeDay;
+  $('timeline').setAttribute('aria-label', production ? 'Recorded production day' : 'Animation day');
+  $('timeline').setAttribute('aria-valuetext', available ? `Day ${day}${production ? ', recorded sample' : ', animation timeline'}` : 'No daily history');
+  $('day-kind').textContent = production ? 'Recorded production day' : 'Animation day';
+  $('time-label').textContent = available ? `Day ${day}` : 'Day —';
+  $('day-end').textContent = available ? `of ${last}${production ? ' · imported history' : ' · animation timeline'}` : 'Load daily history to begin';
+  $('day-start').textContent = available ? `Day ${first}` : '—';
+  $('day-middle').textContent = available ? `Day ${middle}` : '—';
+  $('day-last').textContent = available ? `Day ${last}` : '—';
+  $('playback-state').textContent = !available ? 'Awaiting CSV' : playing ? 'Playing' : day === last ? 'Complete' : day === first ? 'Ready' : 'Paused';
 }
 function setMode(next) {
   pause(); mode = next;
   $('mode-flow').classList.toggle('active', mode === 'flow'); $('mode-flow').setAttribute('aria-pressed', mode === 'flow');
   $('mode-production').classList.toggle('active', mode === 'production'); $('mode-production').setAttribute('aria-pressed', mode === 'production');
-  $('timeline-badge').textContent = mode === 'flow' ? '30-second illustration' : history ? `${history.days.length} recorded days` : 'History not supplied';
-  $('playback-note').textContent = mode === 'flow' ? 'Illustrative oil-up / injection-down cues along existing well markers. Not simulated reservoir transport; speed is uncalibrated. Camera stays manual.' : history ? 'One recorded day per second at 1×. Exact samples only; blank values stay missing. Geometry and property colors remain static.' : 'Daily rates and restart frames were not supplied. Load a CSV to enable recorded-day playback. The model remains static.';
+  $('timeline-badge').textContent = mode === 'flow' ? 'Well-flow animation' : history ? `${history.days.length} recorded days` : 'History not supplied';
+  $('playback-note').textContent = mode === 'flow' ? 'Play through animation days 0–30. At 1×, one animation day advances per second. Drag the timeline to seek; move the camera by hand.' : history ? 'One recorded sample per second at 1×, using the actual imported days. No interpolation; blank rates stay missing. Model properties stay static and camera stays manual.' : 'Load a daily history CSV for actual production days and rates, or use Animation day to view well-flow movement.';
   updateTransport(); updateMotion(); renderProduction();
 }
-function resetPlayback() { pause(); flowTime = 0; productionIndex = 0; playbackRemainder = 0; updateMotion(); updateTransport(); renderProduction(); }
+function resetPlayback() { pause(); illustrativeDay = 0; productionIndex = 0; playbackRemainder = 0; updateMotion(); updateTransport(); renderProduction(); }
 function setView(view) {
   const radius = fittedRadius(); const orbits = {perspective: `35deg 65deg ${radius}m`, top: `0deg 5deg ${radius}m`, side: `90deg 87deg ${radius}m`};
   mv.cameraTarget = '0m 0.035m 0m'; mv.cameraOrbit = orbits[view];
@@ -184,7 +198,7 @@ function drawChart(key, day) {
 
 $('mode-flow').onclick = () => setMode('flow'); $('mode-production').onclick = () => setMode('production');
 $('play').onclick = () => playing ? pause() : play(); $('reset-playback').onclick = resetPlayback;
-$('timeline').oninput = () => { const value = Number($('timeline').value); pause(); if (mode === 'flow') { flowTime = value; updateMotion(); } else { productionIndex = value; renderProduction(); } updateTransport(); };
+$('timeline').oninput = () => { const value = Number($('timeline').value); pause(); if (mode === 'flow') { illustrativeDay = value; updateMotion(); } else { productionIndex = value; renderProduction(); } updateTransport(); };
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 $('reset-view').onclick = () => setView('perspective');
 for (const [id, factor] of [['zoom-in', .8], ['zoom-out', 1.25]]) $(id).onclick = () => { const o = mv.getCameraOrbit(); mv.cameraOrbit = `${o.theta}rad ${o.phi}rad ${Math.max(.55, Math.min(2.5, o.radius * factor))}m`; };
