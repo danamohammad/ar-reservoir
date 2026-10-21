@@ -139,6 +139,8 @@ function resetPlayback() { pause(); tourTime = 0; productionIndex = 0; playbackR
 function setView(view) {
   pause(); const radius = fittedRadius(); const orbits = {perspective: `35deg 65deg ${radius}m`, top: `0deg 5deg ${radius}m`, side: `90deg 87deg ${radius}m`};
   mv.cameraTarget = '0m 0.035m 0m'; mv.cameraOrbit = orbits[view];
+  // Wheel/pinch zoom can change the internal FOV without changing its attribute.
+  mv.fieldOfView = '35deg'; mv.requestUpdate('fieldOfView');
   document.querySelectorAll('[data-view]').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active', active); b.setAttribute('aria-pressed', active); });
 }
 function renderProduction() {
