@@ -83,7 +83,7 @@ function layoutWellLabels() {
   for (const {el, hit} of labels) {
     const x = hit.canvasPosition.x, y = hit.canvasPosition.y, label = el.querySelector('.well-label');
     const w = label.offsetWidth || 68, h = label.offsetHeight || 27; let chosen = null;
-    for (const dy of [-32, -60, -88, 32, 60]) {
+    for (const dy of [-32, -60, -88, 32, 64, 96, 128]) {
       for (const dx of [0, -42, 42, -78, 78, -110, 110]) {
         const box = {x: x + dx - w / 2, y: y + dy - h / 2, w, h};
         if (box.x < 7 || box.y < 12 || box.x + w > width - 7 || box.y + h > height - 65) continue;
@@ -92,7 +92,7 @@ function layoutWellLabels() {
       }
       if (chosen) break;
     }
-    if (!chosen) chosen = {dx: 0, dy: -32, box: {x: x - w / 2, y: y - 45, w, h}};
+    if (!chosen) { const cx = Math.max(w / 2 + 8, Math.min(width - w / 2 - 8, x)); const cy = Math.max(h / 2 + 12, Math.min(height - h / 2 - 65, y - 32)); chosen = {dx: cx - x, dy: cy - y, box: {x: cx - w / 2, y: cy - h / 2, w, h}}; }
     occupied.push(chosen.box); label.style.left = `calc(50% + ${chosen.dx}px)`; label.style.top = `calc(50% + ${chosen.dy}px)`;
     const stem = el.querySelector('.well-stem'); stem.style.height = `${Math.hypot(chosen.dx, chosen.dy)}px`; stem.style.transform = `rotate(${Math.atan2(chosen.dx, -chosen.dy)}rad)`;
   }
@@ -179,7 +179,7 @@ document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(
 $('reset-view').onclick = () => setView('perspective');
 for (const [id, factor] of [['zoom-in', .8], ['zoom-out', 1.25]]) $(id).onclick = () => { pause(); const o = mv.getCameraOrbit(); mv.cameraOrbit = `${o.theta}rad ${o.phi}rad ${Math.max(.55, Math.min(2.5, o.radius * factor))}m`; };
 $('labels-toggle').onclick = () => { const show = $('labels-toggle').getAttribute('aria-pressed') !== 'true'; $('labels-toggle').setAttribute('aria-pressed', show); wellHotspots.forEach(b => b.hidden = !show); layoutWellLabels(); };
-mv.addEventListener('camera-change', layoutWellLabels);
+mv.addEventListener('camera-change', () => requestAnimationFrame(layoutWellLabels));
 let narrowScene = mv.clientWidth < 500;
 new ResizeObserver(() => { const next = mv.clientWidth < 500; if (ready && next !== narrowScene) setView('perspective'); narrowScene = next; requestAnimationFrame(layoutWellLabels); }).observe(mv);
 $('clear-cell').onclick = () => { selectedCell = null; $('cell-prompt').hidden = false; $('cell-readout').hidden = true; $('clear-cell').hidden = true; $('selection-pin').hidden = true; };
