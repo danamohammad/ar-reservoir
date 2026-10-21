@@ -16,9 +16,12 @@ test('every web face UV addresses its original cell after CanvasTexture vertical
   }
   assert.equal(new Set(Array.from({length:1870},(_,i)=>canvasTileOrigin(i).join(','))).size,1870);
 });
-test('oil and water colors share fixed endpoints and displayed days select saved frames',()=>{
-  assert.deepEqual(saturationColor(0),[32,52,83]);
-  assert.deepEqual(saturationColor(1),[246,219,72]);
+test('original blue-cyan-green-yellow-red palette and fixed endpoints and displayed days select saved frames',()=>{
+  assert.deepEqual(saturationColor(0),[0,0,255]);
+  assert.deepEqual(saturationColor(1),[255,0,0]);
+  assert.deepEqual(saturationColor(.25),[0,255,255]);
+  assert.deepEqual(saturationColor(.5),[0,255,0]);
+  assert.deepEqual(saturationColor(.75),[255,255,0]);
   const days=Array.from({length:121},(_,i)=>i/4);
   assert.equal(days[scenarioFrame(15,days)],15);
   assert.equal(scenarioFrame(30,days),120);

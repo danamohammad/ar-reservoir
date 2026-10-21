@@ -4,8 +4,8 @@ export const scenarioFrame = (day, days) => Math.max(0, Math.min(days.length - 1
 // Reflect tile rows so original glTF UVs still address the correct source cell.
 export const canvasTileOrigin = cell => [cell % 64 * 16, (31 - Math.floor(cell / 64)) * 16];
 export const saturationColor = value => {
-  // Fixed, perceptually ordered cividis-like ramp. Both phases use [0,1].
-  const stops = [[32, 52, 83], [57, 80, 109], [103, 115, 113], [165, 154, 105], [246, 219, 72]];
+  // Exact original build.py jet stops: blue low, then cyan/green/yellow, red high.
+  const stops = [[0, 0, 255], [0, 255, 255], [0, 255, 0], [255, 255, 0], [255, 0, 0]];
   const t = Math.max(0, Math.min(1, value)) * 4, s = Math.min(3, Math.floor(t)), f = t - s;
   return stops[s].map((v, i) => Math.round(v + f * (stops[s + 1][i] - v)));
 };
@@ -63,7 +63,7 @@ export async function createScenarioView(mv, meta, originalTexture, readJSON) {
       const dynamic = active && (row === 0 || row === 6);
       const value = row === 6 ? states[frame * 1870 + cell] : 1 - states[frame * 1870 + cell];
       let rgb;
-      if (dynamic || row === 6) rgb = saturationColor(contours ? Math.round(value * 10) / 10 : value);
+      if (dynamic || row === 6) rgb = saturationColor((contours ? Math.round(value * 10) / 10 : value) / (row === 0 ? .75 : 1));
       else { const offset = (row * 1870 + cell) * 4; rgb = Array.from(originalTexture.slice(offset, offset + 3)); }
       ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.fillRect(x, y, 16, 16);
       if (edges) { ctx.strokeStyle = 'rgba(12,23,36,.7)'; ctx.lineWidth = .8; ctx.strokeRect(x + 1, y + 1, 14, 14); }

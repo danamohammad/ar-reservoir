@@ -60,7 +60,7 @@ Current numerical results are published in `scenario/transport.json` under `chec
 
 ## What the visualization shows
 
-Oil and water saturation use the same fixed 0–1 ordered color scale at every saved day. Playback selects a saved 0.25-day frame, without temporal interpolation. Optional 0.1 saturation bands quantize the display only, not the calculation or cell readout. Porosity, permeability and depth retain their original static color rows. No dynamic pressure or geological change is invented.
+The exact original build.py palette is restored: blue (low), cyan, green, yellow, red (high), with linear RGB interpolation and rounding. Oil uses the original fixed 0–0.75 scale; water uses a fixed 0–1 scale. Both remain comparable across all saved days within the selected phase. These display scales do not change the saturation calculation. Playback selects a saved 0.25-day frame, without temporal interpolation. Optional 0.1 saturation bands quantize the display only, not the calculation or cell readout. Porosity, permeability and depth retain their original static color rows. No dynamic pressure or geological change is invented.
 
 Grid edges follow the existing exterior quads. Original vertex positions and indices are unchanged; a derived web GLB only expands per-face UV coordinates so cell borders can be drawn. Lighting and texture detail do not add geological resolution. Interior geometry was not reconstructed or displayed as a cutaway.
 

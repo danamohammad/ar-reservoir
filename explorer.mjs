@@ -1,4 +1,4 @@
-import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs?v=2';
+import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs?v=3';
 import {parseHistory, sampleAt, cellAddress, textureEstimate, parseGLB, accessorFloats, RATE_COLUMNS} from './data.mjs';
 
 const $ = id => document.getElementById(id);
@@ -21,18 +21,18 @@ const fetchChecked = async url => { const r = await fetch(url); if (!r.ok) throw
 
 function setProperty(index) {
   selectedProperty = index;
-  const p = index === 6 || (index === 0 && mode === 'flow') ? {min:0,max:1,unit: index === 6 ? 'Sw, fraction' : 'So, fraction',scale:'lin'} : meta.properties[index];
+  const p = index === 6 || (index === 0 && mode === 'flow') ? {min:0,max:index === 6 ? 1 : .75,unit: index === 6 ? 'Sw, fraction' : 'So, fraction',scale:'lin'} : meta.properties[index];
   document.querySelectorAll('.property').forEach((b, i) => { b.classList.toggle('active', i === index); b.setAttribute('aria-pressed', i === index); });
   const dynamic = mode === 'flow' && (index === 0 || index === 6);
   $('scene-title').textContent = dynamic ? `Calculated ${index === 6 ? 'water' : 'oil'} saturation` : index === 6 ? 'Initial water saturation' : names[index];
   $('legend-name').textContent = index === 6 ? 'Water saturation' : shortNames[index];
   document.querySelector('.color-ramp').classList.toggle('saturation', dynamic || index === 6);
   document.querySelector('.color-ramp').classList.toggle('banded', (dynamic || index === 6) && $('contours').checked);
-  document.querySelector('.color-ramp').style.background = (dynamic || index === 6) && $('contours').checked ? `linear-gradient(90deg,${Array.from({length:11},(_,n)=>`rgb(${saturationColor(n/10).join(',')}) ${Math.max(0,(n-.5)*10)}% ${Math.min(100,(n+.5)*10)}%`).join(',')})` : '';
+  document.querySelector('.color-ramp').style.background = (dynamic || index === 6) && $('contours').checked ? `linear-gradient(90deg,${Array.from({length:Math.ceil(p.max*10)+1},(_,n)=>`rgb(${saturationColor(n/10/p.max).join(',')}) ${Math.max(0,(n-.5)*10/p.max)}% ${Math.min(100,(n+.5)*10/p.max)}%`).join(',')})` : '';
   $('legend-scale').textContent = p.scale === 'log' ? 'Logarithmic' : 'Linear';
   const mid = p.scale === 'log' ? Math.sqrt(p.min * p.max) : (p.min + p.max) / 2;
   $('legend-ticks').replaceChildren(...[p.min, mid, p.max].map(v => { const e = document.createElement('span'); e.textContent = fmt(v, index); return e; }));
-  $('legend-unit').textContent = p.unit + (dynamic ? ' · fixed 0–1 scale' : '');
+  $('legend-unit').textContent = p.unit + (dynamic ? ` · fixed 0–${p.max} scale` : '');
   $('property-note').textContent = dynamic ? 'Calculated conservative oil–water scenario. Fixed scale across all days; assumptions in the information panel.' : index === 6 ? 'Initial water = 1 − original initial oil saturation. Not imported dynamic data.' : notes[index];
   const asset = arManifest.properties[index === 6 ? 0 : index];
   arModel.setAttribute('ios-src', asset.usdz);
