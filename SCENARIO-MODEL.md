@@ -31,7 +31,7 @@ Each logical source cell is a well-mixed compartment. Because its physical volum
 
 Neighbor conductance is `C_ij = harmonic_mean(k_i,k_j) / mean(k)`, with the reconstructed PERMX used in every direction and unit geometric factors. This is a conductivity network, **not** a TPFA calculation on the missing corner-point faces. It cannot reproduce effects of real face areas, thickness, anisotropy, faults, non-orthogonality or non-neighbor connections.
 
-Pure water is injected at INJ at an assumed constant 0.02 PV/day. Total extraction equals injection: each of three producers withdraws 0.02/3 PV/day, split equally over its five layers. Injection is also equally split over five layers. These controls define the scenario clock; changing the assumed rate rescales the time. Thirty assumed days correspond to 0.6 injected PV. No rate is calibrated to a field well. Rates are **PV/day**, cumulative amounts **PV**, never STB/day.
+Before day 7, pure water is injected at INJ at 0.02 PV/day. Each of three producers withdraws 0.02/3 PV/day, split equally over its five layers. From day 7 inclusive, PROD-3 (I13/J5) is shut in permanently. PROD-1 and PROD-2 retain their original controls. As approved, injection reduces to the exact sum of the remaining producer controls, 2/3 × 0.02 PV/day; the displayed 0.01333 is only rounded text. Injection remains equally split over five layers. The steady flow field is solved again at day 7, without resetting saturation or cumulative volumes. Total production decreases by one-third after shut-in. Thirty assumed days correspond to 0.4466666667 injected PV. These controls define the scenario clock. No rate is calibrated to a field well. Rates are **PV/day**, cumulative amounts **PV**, never STB/day.
 
 We solve the steady graph equation `sum_j C_ij (h_i − h_j) = injection_i − extraction_i` with zero-mean gauge using Jacobi-preconditioned conjugate gradients. Directed total flux is `q_ij = C_ij (h_i − h_j)`. Local flux divergence is checked against each cell's source/sink. `h` has no mapped physical pressure unit and is not presented as pressure. Under equal viscosity and linear phase mobility, total mobility is constant, so this flow field does not change with saturation.
 
@@ -41,14 +41,14 @@ Water transport uses conservative first-order upwinding:
 
 Oil saturation is `So_i = 1 − Sw_i`. The equivalent oil equation has no oil injection and extracts `extraction_i * So_i`. Two-component saturation sums to one. The model excludes gas, gravity segregation, capillary pressure, compressibility, adsorption, polymer, residual trapping, thermal effects and rock changes. The equal-mobility assumption is deliberately simple; it is not a fitted relative-permeability law.
 
-Explicit steps satisfy `dt * max(inflow_i,outflow_i) / PV_i ≤ 0.8`. Outflow includes production; inflow includes injection. Steps are shortened to land exactly on each saved 0.25-day frame. No saturation clipping is used to conceal balance error. All rates/volumes must be finite and nonnegative within floating-point tolerance. Cumulative volumes integrate the same upstream rates used in every transport step. The small residual at the linear solve can cause round-off of order 1e-12 at a saturation bound; tests enforce tolerance and serialized float32 frames remain within [0,1].
+Explicit steps satisfy `dt * max(inflow_i,outflow_i) / PV_i ≤ 0.8`. Outflow includes production; inflow includes injection. Steps are shortened to land exactly on each saved 0.25-day frame and on the day-7 control boundary. Day-7 instantaneous rates use the new controls; saturation and cumulative volumes at day 7 integrate the preceding controls without a jump. No saturation clipping is used to conceal balance error. All rates/volumes must be finite and nonnegative within floating-point tolerance. Cumulative volumes integrate the same upstream rates used in every transport step. The small residual at the linear solve can cause round-off of order 1e-12 at a saturation bound; tests enforce tolerance and serialized float32 frames remain within [0,1].
 
 ## Numerical verification
 
-Run `python scripts/build_transport.py`, then `python tests/transport_test.py` with numpy and Pillow. The tests check:
+Run `python scripts/build_transport.py`, then `python tests/transport_test.py` and `python tests/shut_in_test.py` with numpy and Pillow. The tests check:
 
 - Each phase's inventory plus production minus injection equals its initial inventory.
-- Cell saturation bounds and oil + water = 1; nonnegative rates/volumes; injected volume = rate × elapsed day.
+- Cell saturation bounds and oil + water = 1; nonnegative rates/volumes; injected volume equals the time integral of the piecewise control schedule.
 - Local flux balance and stable time step.
 - Half-step refinement against the default result (pore-weighted final saturation L1 difference below 0.001).
 - No spontaneous transport in a closed compartment.
@@ -56,7 +56,7 @@ Run `python scripts/build_transport.py`, then `python tests/transport_test.py` w
 - Float32 export error; all web mesh positions, normals, indices and well geometry equal the original source.
 - Every displayed surface flow direction matches a solved directed connection.
 
-Current numerical results are published in `scenario/transport.json` under `checks`. Phase inventory error is approximately 2e-15 PV in float64. Serialization adds about 1e-9 PV weighted error. CFL maximum is 0.8; maximum step about 0.050804 assumed day. Half-step final L1 difference is about 0.0001266. **These are numerical consistency checks, not history matching or field validation.** A grid-convergence study cannot recover missing geometry and is not claimed.
+Current numerical results are published in `scenario/transport.json` under `checks`. Phase inventory error is approximately 3e-15 PV in float64. Serialization adds about 1e-9 PV weighted error. CFL maximum is 0.8; minimum stable-step limit about 0.050804 assumed day. Half-step final L1 difference is about 0.0001903. **These are numerical consistency checks, not history matching or field validation.** A grid-convergence study cannot recover missing geometry and is not claimed.
 
 ## What the visualization shows
 

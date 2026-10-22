@@ -37,6 +37,10 @@ def well_controls(meta, day=0, prod3_shut_in_day=None):
             injection[ids] = .02 / nz
         elif not (w['name'] == 'PROD-3' and prod3_shut_in_day is not None and day >= prod3_shut_in_day):
             extraction[ids] = .02 / 3 / nz
+    if prod3_shut_in_day is not None and day >= prod3_shut_in_day:
+        # Approved balancing control: derive from unchanged remaining producers,
+        # never from the rounded UI value 0.01333.
+        injection[injection > 0] = extraction.sum() / np.count_nonzero(injection)
     return injection, extraction, wells
 
 
@@ -134,18 +138,17 @@ def setup(meta, props, day=0, prod3_shut_in_day=None):
     return dict(pv=pv, src=src, dst=dst, flux=flux, outflow=outflow,
                 injection=injection, extraction=extraction, wells=wells,
                 stable_dt=stable_dt, residual=residual, iterations=iterations,
-                control_meta=meta, prod3_shut_in_day=prod3_shut_in_day)
+                control_meta=meta, control_props=props, prod3_shut_in_day=prod3_shut_in_day)
 
 
 def solve(model, initial, cfl_scale=1, end=30, frame_step=.25):
     shut_in = model.get('prod3_shut_in_day')
+    phases = [model]
     if shut_in is not None and end >= shut_in:
-        injection, extraction, _ = well_controls(model['control_meta'], shut_in, shut_in)
-        # Never carry pre-shut-in flow through the event or publish extrapolated
-        # post-shut-in saturation when the scheduled controls have no solution.
-        require_balanced_controls(injection, extraction, shut_in)
-    pv, src, dst, flux = (model[k] for k in ['pv', 'src', 'dst', 'flux'])
-    inj, ext, outflow = (model[k] for k in ['injection', 'extraction', 'outflow'])
+        phases.append(setup(model['control_meta'], model['control_props'], shut_in, shut_in))
+    def phase_at(t):
+        return phases[-1] if len(phases) > 1 and t >= shut_in else model
+    pv = model['pv']
     sw = 1 - initial.copy()
     initial_oil, initial_water = float(np.dot(pv, 1 - sw)), float(np.dot(pv, sw))
     cumulative_oil = cumulative_water = cumulative_inj = day = 0.
@@ -154,7 +157,11 @@ def solve(model, initial, cfl_scale=1, end=30, frame_step=.25):
     steps = 0
     for target in np.arange(0, end + frame_step / 2, frame_step):
         while day < target - 1e-13:
-            dt = min(model['stable_dt'] * cfl_scale, target - day)
+            phase = phase_at(day)
+            src, dst, flux, inj, ext = (phase[k] for k in ['src', 'dst', 'flux', 'injection', 'extraction'])
+            dt = min(phase['stable_dt'] * cfl_scale, target - day)
+            if shut_in is not None and day < shut_in:
+                dt = min(dt, shut_in - day)
             water_flux = flux * sw[src]
             divergence = np.bincount(dst, water_flux, len(sw)) - np.bincount(src, water_flux, len(sw))
             qo, qw = float(np.dot(ext, 1 - sw)), float(np.dot(ext, sw))
@@ -164,6 +171,12 @@ def solve(model, initial, cfl_scale=1, end=30, frame_step=.25):
             cumulative_oil += qo * dt; cumulative_water += qw * dt
             cumulative_inj += float(inj.sum()) * dt
             day += dt; steps += 1
+            if shut_in is not None and abs(day - shut_in) < 1e-13:
+                day = float(shut_in)
+        # State at the event is continuous; instantaneous rates use new controls
+        # from day 7 inclusive. No transport step crosses the control boundary.
+        phase = phase_at(float(target))
+        inj, ext = phase['injection'], phase['extraction']
         oil, water = float(np.dot(pv, 1 - sw)), float(np.dot(pv, sw))
         err = max(abs(oil + cumulative_oil - initial_oil),
                   abs(water + cumulative_water - cumulative_inj - initial_water))
@@ -181,9 +194,10 @@ def solve(model, initial, cfl_scale=1, end=30, frame_step=.25):
     assert worst < 1e-10 and np.all(np.diff([r['cumulativeOil'] for r in records]) >= 0)
     checks = dict(maxPhaseBalanceErrorPV=worst, saturationMin=float(frames.min()),
                   saturationMax=float(frames.max()), maxSaturationSumError=0,
-                  maxCFL=float(model['stable_dt'] * np.max(outflow / pv)),
-                  stableTimeStepDays=float(model['stable_dt']), steps=steps,
-                  localFluxResidualPVPerDay=model['residual'], pressureSolveIterations=model['iterations'])
+                  maxCFL=float(max(p['stable_dt'] * cfl_scale * np.max(p['outflow'] / pv) for p in phases)),
+                  stableTimeStepDays=float(min(p['stable_dt'] for p in phases)), steps=steps,
+                  localFluxResidualPVPerDay=max(p['residual'] for p in phases),
+                  pressureSolveIterations=max(p['iterations'] for p in phases))
     return frames, records, checks
 
 
@@ -237,6 +251,7 @@ def surface_vectors(j, binary, model):
 def main():
     meta, props, j, binary = decoded_properties()
     model = setup(meta, props, prod3_shut_in_day=7)
+    post = setup(meta, props, day=7, prod3_shut_in_day=7)
     frames, records, checks = solve(model, props[0])
     refined, _, _ = solve(model, props[0], cfl_scale=.5)
     checks['halfStepPoreWeightedFinalL1'] = float(np.dot(model['pv'], abs(frames[-1] - refined[-1])))
@@ -251,10 +266,16 @@ def main():
                   ratePVPerDay=.02, records=records, checks=checks,
                   sourceGLBSha256=hashlib.sha256((ROOT / 'reservoir.glb').read_bytes()).hexdigest(),
                   poreWeights=model['pv'].tolist(), surfaceFlow=surface_vectors(j, binary, model),
+                  controlPeriods=[dict(startDay=0, shutWells=[], injectionPVPerDay=float(model['injection'].sum()),
+                                       totalProductionPVPerDay=float(model['extraction'].sum())),
+                                  dict(startDay=7, shutWells=['PROD-3'], injectionPVPerDay=float(post['injection'].sum()),
+                                       totalProductionPVPerDay=float(post['extraction'].sum()),
+                                       surfaceFlow=surface_vectors(j, binary, post))],
                   assumptions=['Equal bulk cell volumes; total pore volume normalized to 1.',
                                'Six-neighbor logical connectivity; unit geometric factors; isotropic PERMX.',
-                               'No-flow outer boundaries; pure-water injection 0.02 PV/day at INJ.',
-                               'Equal total extraction across 3 producers; equal allocation across all 5 layers.',
+                               'No-flow outer boundaries; injection and total production 0.02 PV/day before day 7.',
+                               'From day 7 PROD-3 is shut; PROD-1 and PROD-2 remain 0.02/3 PV/day each; INJ exactly matches their sum.',
+                               'All active wells retain equal allocation across all 5 layers.',
                                'Incompressible oil/water; equal viscosity and linear relative permeability; fw=Sw.',
                                'No gas, gravity segregation, capillarity, compressibility, trapping or polymer.',
                                'Texture-decoded porosity/permeability/initial saturation are quantized approximations.'])

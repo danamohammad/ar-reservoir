@@ -1,4 +1,4 @@
-import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs?v=3';
+import {createScenarioView, scenarioFrame, saturationColor} from './scenario.mjs?v=4';
 import {parseHistory, sampleAt, cellAddress, textureEstimate, parseGLB, accessorFloats, RATE_COLUMNS} from './data.mjs';
 
 const $ = id => document.getElementById(id);
@@ -95,8 +95,17 @@ function updateMotion() {
     scenario.paint(selectedProperty, active ? illustrativeDay : 0, active);
     scenario.vectors(illustrativeDay, active && $('flow-toggle').checked);
     const w = scenario.well(selectedWell, illustrativeDay);
+    const shutWells = active ? scenario.controls(illustrativeDay).shutWells : [];
+    const selected = meta.wells.find(well => well.name === selectedWell);
+    const shut = shutWells.includes(selectedWell);
+    $('well-kind').textContent = shut ? 'Shut in' : selected.kind === 'inj' ? 'Injector' : 'Producer';
+    for (const [name, hotspot] of wellHotspots) {
+      const closed = shutWells.includes(name);
+      hotspot.querySelector('.well-label').lastChild.textContent = `${name}${closed ? ' · Shut in' : ''}`;
+      hotspot.setAttribute('aria-label', `Inspect ${name}${closed ? ', shut in since day 7' : ''}`);
+    }
     $('well-scenario').hidden = !active;
-    $('well-scenario').textContent = w.injection > 0 ? `Calculated injection: ${w.injection.toFixed(5)} PV/day · assumed control` : `Calculated oil: ${w.oil.toFixed(5)} · water: ${w.water.toFixed(5)} PV/day`;
+    $('well-scenario').textContent = shut ? 'Shut in from day 7 · oil: 0 · water: 0 PV/day' : w.injection > 0 ? `Calculated injection: ${w.injection.toFixed(5)} PV/day · assumed control` : `Calculated oil: ${w.oil.toFixed(5)} · water: ${w.water.toFixed(5)} PV/day`;
     if (selectedCell !== null && (selectedProperty === 0 || selectedProperty === 6)) showCell(selectedCell);
   }
 }

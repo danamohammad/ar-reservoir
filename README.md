@@ -45,3 +45,5 @@ GitHub Pages publishes `main` from `/`. Baseline before the interface upgrade: `
 The current Animation day mode plays a conservative, assumption-based oil–water scenario, with fixed-scale dynamic saturation, normalized production, grid edges and solved surface flux cues. Original geometry and static property arrays are preserved. Read [SCENARIO-MODEL.md](SCENARIO-MODEL.md) before interpreting results. Missing internal geometry, PVT and completion controls prevent a field forecast.
 
 Rebuild: `python scripts/build_transport.py` (numpy/Pillow). Test: `python tests/transport_test.py`, `node --test tests/*.test.mjs`, and `python tests/ar_assets_test.py` on macOS. Static native AR assets are unchanged.
+
+The current scenario shuts PROD-3 (I13/J5) from day 7. PROD-1/2 retain their controls; approved injection reduction matches their exact sum. The original pre-day-7 trajectory is preserved, and the flow field is recalculated at shut-in.

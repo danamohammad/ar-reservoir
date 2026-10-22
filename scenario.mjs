@@ -1,5 +1,6 @@
 // Precomputed conservative scenario; no field calibration is implied.
 export const scenarioFrame = (day, days) => Math.max(0, Math.min(days.length - 1, Math.round(day / (days[1] - days[0]))));
+export const controlPeriod = (day, periods) => periods.findLast(p => day >= p.startDay) ?? periods[0];
 // model-viewer's CanvasTexture keeps Three.js flipY=true, unlike loaded GLB PNGs.
 // Reflect tile rows so original glTF UVs still address the correct source cell.
 export const canvasTileOrigin = cell => [cell % 64 * 16, (31 - Math.floor(cell / 64)) * 16];
@@ -23,21 +24,24 @@ export async function createScenarioView(mv, meta, originalTexture, readJSON) {
   let lastKey = '', current = {frame: 0, row: 0, active: true};
   const $ = id => document.getElementById(id);
   const svgNS = 'http://www.w3.org/2000/svg';
-  const arrows = info.surfaceFlow.map((v, i) => {
+  const periods = info.controlPeriods;
+  const arrows = periods.flatMap((period, phase) => (period.surfaceFlow ?? info.surfaceFlow).map((v, i) => {
     const endpoints = ['start', 'end'].map((key, j) => {
-      const e = document.createElement('span'); e.slot = `hotspot-vector-${i}-${j}`;
+      const e = document.createElement('span'); e.slot = `hotspot-vector-${phase}-${i}-${j}`;
       e.className = 'vector-anchor'; e.dataset.position = v[key].map(x => `${x}m`).join(' '); e.dataset.normal = '0 1 0';
       e.setAttribute('aria-hidden', 'true'); mv.append(e); return e.slot;
     });
     const line = document.createElementNS(svgNS, 'path'); line.setAttribute('class', 'flux-line'); $('flow-vectors').append(line);
     const dot = document.createElementNS(svgNS, 'circle'); dot.setAttribute('r', '2.5'); dot.setAttribute('class', 'flux-dot'); $('flow-vectors').append(dot);
-    return {...v, endpoints, line, dot};
-  });
+    return {...v, phase, endpoints, line, dot};
+  }));
   function vectors(day, visible) {
     const svg = $('flow-vectors'); svg.hidden = !visible;
     if (!visible) return;
     svg.setAttribute('viewBox', `0 0 ${mv.clientWidth} ${mv.clientHeight}`);
+    const period = controlPeriod(info.days[scenarioFrame(day, info.days)], periods);
     for (const a of arrows) {
+      if (periods[a.phase] !== period) { a.line.style.display = a.dot.style.display = 'none'; continue; }
       const s = mv.queryHotspot(a.endpoints[0]), e = mv.queryHotspot(a.endpoints[1]);
       const on = s?.facingCamera && e?.facingCamera;
       a.line.style.display = a.dot.style.display = on ? '' : 'none';
@@ -77,10 +81,13 @@ export async function createScenarioView(mv, meta, originalTexture, readJSON) {
       $('scenario-injected').textContent = r.injectedPV.toFixed(3);
       $('scenario-balance').textContent = `${r.balanceError.toExponential(1)} PV`;
       $('scenario-sample').textContent = `Calculated Day ${info.days[frame]} · whole model · assumed controls`;
+      const controls = controlPeriod(info.days[frame], periods);
+      $('scenario-controls').textContent = `${controls.shutWells.length ? 'PROD-3 shut in since day 7' : 'All producers active'} · Total production = injection: ${controls.injectionPVPerDay.toFixed(5)} PV/day${controls.shutWells.length ? ' (exactly ⅔ of initial control)' : ''}`;
       $('scenario-chart').innerHTML = `<svg viewBox="0 0 240 64" role="img" aria-label="Calculated oil rate decreases as water replaces oil. Fixed vertical scale zero to 0.02 pore volumes per day."><path d="M5 5V54H235" fill="none" stroke="#3d4a5c"/><path d="${info.records.map((p, i) => `${i ? 'L' : 'M'}${5 + p.day / 30 * 230},${54 - p.oilRate / .02 * 48}`).join('')}" fill="none" stroke="#e7c75f" stroke-width="2"/><path d="M${5 + r.day / 30 * 230} 4V55" stroke="#bcd7de"/><text x="5" y="63" fill="#aab5c3" font-size="8">0 days</text><text x="210" y="63" fill="#aab5c3" font-size="8">30 days</text></svg>`;
     }
   }
   return {info, paint, vectors,
+    controls: day => controlPeriod(info.days[scenarioFrame(day, info.days)], periods),
     value: cell => current.row === 6 ? states[current.frame * 1870 + cell] : 1 - states[current.frame * 1870 + cell],
     refresh: () => { lastKey = ''; },
     well: (name, day) => info.records[scenarioFrame(day, info.days)].wells[name]

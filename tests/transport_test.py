@@ -62,8 +62,10 @@ class TransportTests(unittest.TestCase):
     def test_export_and_original_geometry(self):
         info = json.loads((ROOT / 'scenario/transport.json').read_text())
         exported = np.fromfile(ROOT / info['states'], dtype='<f4').reshape(len(info['days']), 1870)
-        np.testing.assert_allclose(exported, self.frames, atol=3e-8)
-        self.assertLess(max(abs((exported - self.frames) @ self.model['pv'])), 2e-8)
+        scheduled = setup(self.meta, self.props, prod3_shut_in_day=7)
+        scheduled_frames, _, _ = solve(scheduled, self.props[0])
+        np.testing.assert_allclose(exported, scheduled_frames, atol=3e-8)
+        self.assertLess(max(abs((exported - scheduled_frames) @ self.model['pv'])), 2e-8)
         j, b = read_glb(ROOT / 'scenario/reservoir-web.glb')
         self.assertEqual(len(j['meshes']), len(self.source['meshes']))
         for old, new in zip(self.source['meshes'], j['meshes']):
