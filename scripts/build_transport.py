@@ -18,6 +18,39 @@ from build_ar_assets import read_glb, accessor, pack_glb
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class ControlBalanceError(ValueError):
+    """A closed incompressible flow problem requires balanced volume controls."""
+
+
+def well_controls(meta, day=0, prod3_shut_in_day=None):
+    nx, ny, nz = (meta['grid'][k] for k in ['nx', 'ny', 'nz'])
+    n = nx * ny * nz
+    injection, extraction, wells = np.zeros(n), np.zeros(n), {}
+    if prod3_shut_in_day is not None:
+        matches = [w for w in meta['wells'] if w['name'] == 'PROD-3' and w['kind'] == 'prod']
+        if len(matches) != 1:
+            raise ValueError('PROD-3 must identify exactly one existing producer')
+    for w in meta['wells']:
+        ids = np.arange(nz) * nx * ny + (w['j'] - 1) * nx + w['i'] - 1
+        wells[w['name']] = ids
+        if w['kind'] == 'inj':
+            injection[ids] = .02 / nz
+        elif not (w['name'] == 'PROD-3' and prod3_shut_in_day is not None and day >= prod3_shut_in_day):
+            extraction[ids] = .02 / 3 / nz
+    return injection, extraction, wells
+
+
+def require_balanced_controls(injection, extraction, day):
+    mismatch = float(injection.sum() - extraction.sum())
+    if abs(mismatch) > 1e-12:
+        raise ControlBalanceError(
+            f'Day {day:g}: injection {injection.sum():.8f} PV/day exceeds '
+            f'extraction {extraction.sum():.8f} PV/day by {mismatch:.8f} PV/day. '
+            'Closed, incompressible fixed-volume cells cannot store this excess. '
+            'PROD-3 is zero; other production and injection controls were not changed. '
+            'A storage-model or control change must be authorized before continuing.')
+
+
 def decoded_properties():
     j, binary = read_glb(ROOT / 'reservoir.glb')
     v = j['bufferViews'][j['images'][0]['bufferView']]
@@ -43,7 +76,7 @@ def decoded_properties():
     return meta, np.array(rows), j, binary
 
 
-def setup(meta, props):
+def setup(meta, props, day=0, prod3_shut_in_day=None):
     nx, ny, nz = (meta['grid'][k] for k in ['nx', 'ny', 'nz'])
     n = nx * ny * nz
     a, b = [], []
@@ -59,16 +92,10 @@ def setup(meta, props):
     conductance = 2 / (1 / perm[a] + 1 / perm[b]) / np.mean(perm)
     # Equal bulk-volume compartments, actual reconstructed porosity weighting.
     pv = props[3] / props[3].sum()
-    injection = np.zeros(n)
-    extraction = np.zeros(n)
-    wells = {}
-    for w in meta['wells']:
-        ids = np.arange(nz) * nx * ny + (w['j'] - 1) * nx + w['i'] - 1
-        wells[w['name']] = ids
-        if w['kind'] == 'inj':
-            injection[ids] = .02 / nz
-        else:
-            extraction[ids] = .02 / 3 / nz
+    injection, extraction, wells = well_controls(meta, day, prod3_shut_in_day)
+    # Check BEFORE projecting the singular system. Subtracting an unbalanced mean
+    # would otherwise disguise an unauthorized distributed sink/source.
+    require_balanced_controls(injection, extraction, day)
     rhs = injection - extraction
     diagonal = np.bincount(a, conductance, n) + np.bincount(b, conductance, n)
 
@@ -106,10 +133,17 @@ def setup(meta, props):
     assert residual < 1e-12
     return dict(pv=pv, src=src, dst=dst, flux=flux, outflow=outflow,
                 injection=injection, extraction=extraction, wells=wells,
-                stable_dt=stable_dt, residual=residual, iterations=iterations)
+                stable_dt=stable_dt, residual=residual, iterations=iterations,
+                control_meta=meta, prod3_shut_in_day=prod3_shut_in_day)
 
 
 def solve(model, initial, cfl_scale=1, end=30, frame_step=.25):
+    shut_in = model.get('prod3_shut_in_day')
+    if shut_in is not None and end >= shut_in:
+        injection, extraction, _ = well_controls(model['control_meta'], shut_in, shut_in)
+        # Never carry pre-shut-in flow through the event or publish extrapolated
+        # post-shut-in saturation when the scheduled controls have no solution.
+        require_balanced_controls(injection, extraction, shut_in)
     pv, src, dst, flux = (model[k] for k in ['pv', 'src', 'dst', 'flux'])
     inj, ext, outflow = (model[k] for k in ['injection', 'extraction', 'outflow'])
     sw = 1 - initial.copy()
@@ -202,7 +236,7 @@ def surface_vectors(j, binary, model):
 
 def main():
     meta, props, j, binary = decoded_properties()
-    model = setup(meta, props)
+    model = setup(meta, props, prod3_shut_in_day=7)
     frames, records, checks = solve(model, props[0])
     refined, _, _ = solve(model, props[0], cfl_scale=.5)
     checks['halfStepPoreWeightedFinalL1'] = float(np.dot(model['pv'], abs(frames[-1] - refined[-1])))
